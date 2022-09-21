@@ -1,0 +1,3 @@
+[submodule "SszSharp"]
+	path = SszSharp
+	url = https://github.com/hexafluoride/SszSharp

@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kmart", "Kmart\Kmart.csproj", "{4AF19188-0747-4453-83C0-C4264DB90E1B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SszSharp", "SszSharp\SszSharp\SszSharp.csproj", "{82374A57-2E01-4E09-8293-98189CF63FC8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4AF19188-0747-4453-83C0-C4264DB90E1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4AF19188-0747-4453-83C0-C4264DB90E1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4AF19188-0747-4453-83C0-C4264DB90E1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4AF19188-0747-4453-83C0-C4264DB90E1B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{82374A57-2E01-4E09-8293-98189CF63FC8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{82374A57-2E01-4E09-8293-98189CF63FC8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{82374A57-2E01-4E09-8293-98189CF63FC8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{82374A57-2E01-4E09-8293-98189CF63FC8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

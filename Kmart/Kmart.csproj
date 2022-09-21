@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net6.0</TargetFramework>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Autofac" Version="6.4.0" />
+      <PackageReference Include="BouncyCastle" Version="1.8.9" />
+      <PackageReference Include="JWT" Version="9.0.3" />
+      <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="6.0.0" />
+      <PackageReference Include="Nethereum.Model" Version="4.9.0" />
+      <PackageReference Include="Nethereum.RLP" Version="4.9.0" />
+      <PackageReference Include="Nethereum.Util" Version="4.9.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\SszSharp\SszSharp\SszSharp.csproj" />
+    </ItemGroup>
+
+</Project>
