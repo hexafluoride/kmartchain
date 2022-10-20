@@ -196,13 +196,13 @@ public class ExecutionLayerServer
                 var newBlock = new FakeEthereumBlock()
                 {
                     Height = newHeight,
-                    Difficulty = newHeight > 20 ? FakeEthereumBlock.PostMergeDifficulty : FakeEthereumBlock.PreMergeDifficulty,
+                    Difficulty = newHeight > 19 ? FakeEthereumBlock.PostMergeDifficulty : FakeEthereumBlock.PreMergeDifficulty,
                     Hash = newHash.ToPrettyString(true),
                     ParentHash = string.IsNullOrWhiteSpace(lastFakedHash) ? new byte[32].ToPrettyString(prefix: true) : lastFakedHash,
                     Timestamp = (int) (DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds
                 };
 
-                if (newHeight == 21)
+                if (newHeight == 20)
                 {
                     newGenesisBlock = newBlock;
                     ResetFromGenesis();
@@ -344,6 +344,7 @@ public class ExecutionLayerServer
                 // If fork choice head is behind canonical head
                 else if (ChainState.IsAncestorOfHead(forkChoiceHead))
                 {
+                    Logger.LogInformation($"Fork choice head {forkChoiceBlock.Height}/{forkChoiceHead.ToPrettyString()} is ancestor of canonical head {ChainState.LastBlock.Height}/{ChainState.LastBlockHash.ToPrettyString()}");
                     responseValue = new
                     {
                         payloadStatus = new PayloadStatusV1("VALID", forkChoiceHead.ToPrettyString(true), null),
@@ -473,7 +474,7 @@ public class ExecutionLayerServer
                                             ChainState.LastBlockHash.ToPrettyString(true), "Could not validate");
                                     }
 
-                                    ChainState.LoadSnapshot(currentHead);
+                                    // ChainState.LoadSnapshot(currentHead);
                                 }
                                 // Recreate parent state from individual blocks
                                 else

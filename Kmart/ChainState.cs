@@ -65,20 +65,25 @@ namespace Kmart
                 SetGenesisState(GenesisState);
                 return true;
             }
-            
-            var targetSnapshotPath = BlobManager.GetPath(blockHash, BlobManager.StateSnapshotKey);
-            if (!File.Exists(targetSnapshotPath))
-            {
-                Logger.LogWarning($"Asked to load state snapshot {blockHash.ToPrettyString()} that could not be found");
-                return false;
-            }
 
-            var lastSnapshot = Snapshot;
-            var snapshot = ChainStateSnapshot.LoadSnapshot(File.ReadAllBytes(targetSnapshotPath));
-            Snapshot = snapshot;
-            Logger.LogInformation(
-                $"Switched from state {lastSnapshot.LastBlock.Height}/{lastSnapshot.LastBlockHash.ToPrettyString()} to {snapshot.LastBlock.Height}/{snapshot.LastBlockHash.ToPrettyString()}");
-            return true;
+            lock (LockObject)
+            {
+                var targetSnapshotPath = BlobManager.GetPath(blockHash, BlobManager.StateSnapshotKey);
+                if (!File.Exists(targetSnapshotPath))
+                {
+                    Logger.LogWarning(
+                        $"Asked to load state snapshot {blockHash.ToPrettyString()} that could not be found");
+                    return false;
+                }
+
+                var lastSnapshot = Snapshot;
+                var snapshot = ChainStateSnapshot.LoadSnapshot(File.ReadAllBytes(targetSnapshotPath));
+                Snapshot = snapshot;
+                
+                Logger.LogInformation(
+                    $"Switched from state {lastSnapshot.LastBlock.Height}/{lastSnapshot.LastBlockHash.ToPrettyString()} to {snapshot.LastBlock.Height}/{snapshot.LastBlockHash.ToPrettyString()}");
+                return true;
+            }
         }
 
         public Block? GetCommonAncestor(Block block)
@@ -98,31 +103,34 @@ namespace Kmart
 
         public void SetGenesisState(BeaconState state)
         {
-            GenesisState = state;
-
-            var genesisBlock = new Block()
+            lock (LockObject)
             {
-                Hash = GenesisState.LastExecutionPayloadHeader.BlockHash,
-                Height = GenesisState.LastExecutionPayloadHeader.BlockNumber,
-                Timestamp = GenesisState.LastExecutionPayloadHeader.Timestamp,
-                Parent = new byte[32],
-                Coinbase = new byte[20],
-                Nonce = new byte[8],
-                Transactions = new Transaction[0]
-            };
+                GenesisState = state;
 
-            Snapshot = new ChainStateSnapshot();
+                var genesisBlock = new Block()
+                {
+                    Hash = GenesisState.LastExecutionPayloadHeader.BlockHash,
+                    Height = GenesisState.LastExecutionPayloadHeader.BlockNumber,
+                    Timestamp = GenesisState.LastExecutionPayloadHeader.Timestamp,
+                    Parent = new byte[32],
+                    Coinbase = new byte[20],
+                    Nonce = new byte[8],
+                    Transactions = new Transaction[0]
+                };
 
-            Snapshot.LastBlock = genesisBlock;
-            Snapshot.LastBlockHash = genesisBlock.Hash;
-            
-            BlockStorage.StoreBlock(genesisBlock);
-            
-            Ancestors.Add(LastBlockHash);
+                Snapshot = new ChainStateSnapshot();
 
-            for (int i = 0; i < GenesisState.Validators.Count; i++)
-            {
-                var validatorAddr = GenesisState.Validators[i].Pubkey;
+                Snapshot.LastBlock = genesisBlock;
+                Snapshot.LastBlockHash = genesisBlock.Hash;
+
+                BlockStorage.StoreBlock(genesisBlock);
+
+                Ancestors.Add(LastBlockHash);
+
+                for (int i = 0; i < GenesisState.Validators.Count; i++)
+                {
+                    var validatorAddr = GenesisState.Validators[i].Pubkey;
+                }
             }
         }
 
@@ -130,7 +138,7 @@ namespace Kmart
         {
             lock (LockObject2)
             {
-                var currentHead = Snapshot.LastBlockHash;
+                var currentHead = Snapshot.LastBlockHash.ToArray();
                 (var isValid, var rollback) = ProcessBlock(block);
                 LoadSnapshot(currentHead);
                 //rollback?.ExecuteRollback();

@@ -79,5 +79,10 @@ namespace Kmart
             Hash = new byte[32];
             Hash = Merkleizer.HashTreeRoot(SszType, this);
         }
+
+        public override string ToString()
+        {
+            return $"{Height}/{Hash.ToPrettyString()}";
+        }
     }
 }

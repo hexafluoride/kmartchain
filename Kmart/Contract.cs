@@ -10,7 +10,7 @@ namespace Kmart
         public HashSet<string> Functions { get; set; }
 
         [JsonConverter(typeof(ByteArrayKeyDictionaryConverter<byte[]>))]
-        public Dictionary<byte[], byte[]> State = new(new ByteArrayComparer());
+        public Dictionary<byte[], byte[]> State { get; set; } = new(new ByteArrayComparer());
         public ContractBootType BootType { get; set; }
 
         public byte[] ReadState(byte[] key)
