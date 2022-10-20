@@ -48,25 +48,25 @@ public class ExecutionPayloadWrapper
     [JsonPropertyName("blockNumber")]
     public string BlockNumber
     {
-        get => BitConverter.GetBytes(Payload.BlockNumber).Reverse().ToArray().ToPrettyString(true);
+        get => BitConverter.GetBytes(Payload.BlockNumber).Reverse().ToArray().ToPrettyString(true, true);
         set => Payload.BlockNumber = BitConverter.ToUInt64(value.ToByteArray(8).Reverse().ToArray());
     }
     [JsonPropertyName("gasLimit")]
     public string GasLimit
     {
-        get => BitConverter.GetBytes(Payload.GasLimit).Reverse().ToArray().ToPrettyString(true);
+        get => BitConverter.GetBytes(Payload.GasLimit).Reverse().ToArray().ToPrettyString(true, true);
         set => Payload.GasLimit = BitConverter.ToUInt64(value.ToByteArray(8).Reverse().ToArray());
     }
     [JsonPropertyName("gasUsed")]
     public string GasUsed
     {
-        get => BitConverter.GetBytes(Payload.GasUsed).Reverse().ToArray().ToPrettyString(true);
+        get => BitConverter.GetBytes(Payload.GasUsed).Reverse().ToArray().ToPrettyString(true, true);
         set => Payload.GasUsed = BitConverter.ToUInt64(value.ToByteArray(8).Reverse().ToArray());
     }
     [JsonPropertyName("timestamp")]
     public string Timestamp
     {
-        get => BitConverter.GetBytes(Payload.Timestamp).Reverse().ToArray().ToPrettyString(true);
+        get => BitConverter.GetBytes(Payload.Timestamp).Reverse().ToArray().ToPrettyString(true, true);
         set => Payload.Timestamp = BitConverter.ToUInt64(value.ToByteArray(8).Reverse().ToArray());
     }
     [JsonPropertyName("extraData")]
@@ -78,7 +78,7 @@ public class ExecutionPayloadWrapper
     [JsonPropertyName("baseFeePerGas")]
     public string BaseFeePerGas
     {
-        get => Payload.BaseFeePerGas.ToByteArray(true, true).ToPrettyString(true);
+        get => Payload.BaseFeePerGas.ToByteArray(true, true).ToPrettyString(true, true);
         set => Payload.BaseFeePerGas = new BigInteger(value.ToByteArray(), true, true);
     }
     
@@ -98,7 +98,7 @@ public class ExecutionPayloadWrapper
     [JsonPropertyName("transactions")]
     public List<string> Transactions
     {
-        get => Payload.Transactions.Select(tx => tx.ToPrettyString()).ToList();
+        get => Payload.Transactions.Select(tx => tx.ToPrettyString(true)).ToList();
         set => Payload.Transactions = value.Select(tx => tx.ToByteArray()).ToList();
     }
 }

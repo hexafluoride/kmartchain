@@ -201,15 +201,22 @@ namespace Kmart
 
                 if (verify)
                 {
+                    var returnMessageMatch = returnMessage.Value.Payload.SequenceEqual(verifyReceipt.Value.ReturnValue);
+                    var stateChangeMatch = stateChangeHash.SequenceEqual(verifyReceipt.Value.StateLog);
+                    var instructionCountMatch = instructionCount == verifyReceipt.Value.InstructionCount;
+                    
                     var callResult = new ContractCallResult()
                     {
                         Receipt = verifyReceipt,
                         RollbackContext = callRollbackContext,
-                        Verified =
-                            returnMessage.Value.Payload.SequenceEqual(verifyReceipt.Value.ReturnValue) &&
-                            stateChangeHash.SequenceEqual(verifyReceipt.Value.StateLog) &&
-                            instructionCount == verifyReceipt.Value.InstructionCount
+                        Verified = returnMessageMatch && stateChangeMatch && instructionCountMatch
                     };
+
+                    if (!callResult.Verified)
+                    {
+                        Logger.LogWarning(
+                            $"Failed to verify transaction {transaction.Hash.ToPrettyString()}, return: {returnMessageMatch}, state: {stateChangeMatch}, instruction: {instructionCountMatch}");
+                    }
 
                     return callResult;
                 }

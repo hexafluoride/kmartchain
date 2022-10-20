@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 
 namespace Kmart
 {
@@ -28,15 +29,25 @@ namespace Kmart
 
             return ret;
         }
-        public static string ToPrettyString(this byte[] arr, bool prefix = false)
+        public static string ToPrettyString(this byte[] arr, bool prefix = false, bool skipZeroes = false)
         {
             if (arr == null)
                 return "(null)";
             
             var str = BitConverter.ToString(arr).Replace("-", "").ToLowerInvariant();
+
+            if (skipZeroes)
+            {
+                str = str.TrimStart('0');
+                if (str.Length == 0)
+                    str = "0";
+            }
+
             if (prefix)
                 return "0x" + str;
             return str;
         }
+
+        public static ulong ToQuantity(this string hexStr) => BitConverter.ToUInt64(hexStr.ToByteArray(8).Reverse().ToArray());
     }
 }

@@ -8,8 +8,11 @@ namespace Kmart
         public const string ContractInitrdKey = "contract_initrd";
         public const string ExecutionTraceKey = "exec_trace";
         public const string BlockKey = "block";
+        public const string StateSnapshotKey = "state_snapshot";
         
-        public string GetPath(byte[] id, string type) => $"blobs/{type}/{id.ToPrettyString()}.dat";
+        public static string DataDirectory { get; set; } = ".";
+        
+        public string GetPath(byte[] id, string type) => $"{DataDirectory}/blobs/{type}/{id.ToPrettyString()}.dat";
 
         public void InitializeDirectories()
         {
@@ -18,12 +21,13 @@ namespace Kmart
                 ContractImageKey,
                 ContractInitrdKey,
                 ExecutionTraceKey,
-                BlockKey
+                BlockKey,
+                StateSnapshotKey
             };
 
             foreach (var key in keys)
             {
-                Directory.CreateDirectory($"blobs/{key}");
+                Directory.CreateDirectory($"{DataDirectory}/blobs/{key}");
             }
         }
     }

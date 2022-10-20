@@ -1,6 +1,7 @@
 using System;
 using Autofac;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 
 namespace Kmart
 {
@@ -20,7 +21,11 @@ namespace Kmart
             builder.RegisterGeneric(typeof(Logger<>)).As(typeof(ILogger<>)).SingleInstance();
             builder.Register(handler => LoggerFactory.Create(configure =>
             {
-                configure.AddConsole();
+                configure.AddSimpleConsole(opt =>
+                {
+                    opt.SingleLine = true;
+                    opt.TimestampFormat = "HH:mm:ss.ffff ";
+                });
             })).As<ILoggerFactory>().SingleInstance();
             
             return builder.Build();

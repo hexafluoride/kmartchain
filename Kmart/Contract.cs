@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Kmart
 {
@@ -7,7 +8,9 @@ namespace Kmart
     {
         public byte[] Address { get; set; }
         public HashSet<string> Functions { get; set; }
-        public Dictionary<byte[], byte[]> State { get; set; } = new(new ByteArrayComparer());
+
+        [JsonConverter(typeof(ByteArrayKeyDictionaryConverter<byte[]>))]
+        public Dictionary<byte[], byte[]> State = new(new ByteArrayComparer());
         public ContractBootType BootType { get; set; }
 
         public byte[] ReadState(byte[] key)

@@ -16,7 +16,7 @@ namespace Kmart
 
             if (args.Any(Directory.Exists))
             {
-                Environment.CurrentDirectory = args.First(Directory.Exists);
+                BlobManager.DataDirectory = Environment.CurrentDirectory = Path.GetFullPath(args.First(Directory.Exists));
             }
             
             using (var container = Bootstrapper.Bootstrap())

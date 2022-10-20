@@ -1,9 +1,35 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Kmart
 {
+    public sealed class ByteArrayKeyDictionaryConverter<TValue>
+        : JsonConverter<Dictionary<byte[], TValue>>
+    {
+        public override Dictionary<byte[], TValue> Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            var dic = (Dictionary<string, TValue>)JsonSerializer
+                .Deserialize(ref reader, typeof(Dictionary<string, TValue>), options);
+            return dic.ToDictionary(k => k.Key.ToByteArray(), k => k.Value, new ByteArrayComparer());
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            Dictionary<byte[], TValue> value,
+            JsonSerializerOptions options)
+        {
+            JsonSerializer.Serialize(
+                writer, value.ToDictionary(p => p.Key.ToPrettyString(), p => p.Value), typeof(Dictionary<string, TValue>), options);
+        }
+    }
+
+    
     public class ByteArrayComparer : EqualityComparer<byte[]>
     {
         public override bool Equals(byte[] first, byte[] second)

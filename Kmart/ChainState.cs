@@ -4,23 +4,43 @@ using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using SszSharp;
 
 namespace Kmart
 {
-    public class ChainState
+    public class ChainStateSnapshot
     {
-        private object LockObject = new object();
-        public BeaconState? GenesisState { get; set; }
+        [System.Text.Json.Serialization.JsonConverter(typeof(ByteArrayKeyDictionaryConverter<ulong>))]
         public Dictionary<byte[], ulong> Balances { get; set; } = new(new ByteArrayComparer());
+        [System.Text.Json.Serialization.JsonConverter(typeof(ByteArrayKeyDictionaryConverter<Contract>))]
         public Dictionary<byte[], Contract> Contracts { get; set; } = new(new ByteArrayComparer());
-
         public byte[] LastBlockHash { get; set; } = new byte[0];
         public Block LastBlock { get; set; }
         public byte[] LastStateRoot { get; set; }
-        public List<byte[]> Ancestors = new List<byte[]>();
+        public List<byte[]> Ancestors { get; set; } = new();
 
+        public byte[] SaveSnapshot() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(this);
+
+        public static ChainStateSnapshot LoadSnapshot(byte[] bytes) => System.Text.Json.JsonSerializer.Deserialize<ChainStateSnapshot>(bytes);
+    }
+    
+    public class ChainState
+    {
+        public ChainStateSnapshot Snapshot { get; set; }
+
+        public Dictionary<byte[], ulong> Balances => Snapshot.Balances;
+        public Dictionary<byte[], Contract> Contracts => Snapshot.Contracts;
+        public byte[] LastBlockHash => Snapshot.LastBlockHash;
+        public Block LastBlock => Snapshot.LastBlock;
+        public byte[] LastStateRoot => Snapshot.LastStateRoot;
+        public List<byte[]> Ancestors => Snapshot.Ancestors;
+
+        public object LockObject = new object();
+        public object LockObject2 = new object();
+        public BeaconState? GenesisState { get; set; }
         public RollbackContext CurrentRollbackContext { get; private set; } = new();
         public Transaction CurrentTransaction { get; private set; }
 
@@ -37,6 +57,43 @@ namespace Kmart
             Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
+        public bool? LoadSnapshot(byte[] blockHash)
+        {
+            if (blockHash.SequenceEqual(GenesisState.LastExecutionPayloadHeader.BlockHash))
+            {
+                Logger.LogInformation($"Switched to genesis state");
+                SetGenesisState(GenesisState);
+                return true;
+            }
+            
+            var targetSnapshotPath = BlobManager.GetPath(blockHash, BlobManager.StateSnapshotKey);
+            if (!File.Exists(targetSnapshotPath))
+            {
+                Logger.LogWarning($"Asked to load state snapshot {blockHash.ToPrettyString()} that could not be found");
+                return false;
+            }
+
+            var lastSnapshot = Snapshot;
+            var snapshot = ChainStateSnapshot.LoadSnapshot(File.ReadAllBytes(targetSnapshotPath));
+            Snapshot = snapshot;
+            Logger.LogInformation(
+                $"Switched from state {lastSnapshot.LastBlock.Height}/{lastSnapshot.LastBlockHash.ToPrettyString()} to {snapshot.LastBlock.Height}/{snapshot.LastBlockHash.ToPrettyString()}");
+            return true;
+        }
+
+        public Block? GetCommonAncestor(Block block)
+        {
+            Block? nextBlock = block;
+            while (nextBlock is not null)
+            {
+                if (IsAncestorOfHead(nextBlock.Hash))
+                    return nextBlock;
+
+                nextBlock = BlockStorage.GetBlock(nextBlock.Parent);
+            }
+
+            return null;
+        }
         public bool IsAncestorOfHead(byte[] hash) => Ancestors.Any(ancestorHash => hash.SequenceEqual(ancestorHash));
 
         public void SetGenesisState(BeaconState state)
@@ -47,15 +104,19 @@ namespace Kmart
             {
                 Hash = GenesisState.LastExecutionPayloadHeader.BlockHash,
                 Height = GenesisState.LastExecutionPayloadHeader.BlockNumber,
-                Timestamp = GenesisState.LastExecutionPayloadHeader.Timestamp
+                Timestamp = GenesisState.LastExecutionPayloadHeader.Timestamp,
+                Parent = new byte[32],
+                Coinbase = new byte[20],
+                Nonce = new byte[8],
+                Transactions = new Transaction[0]
             };
 
-            LastBlock = genesisBlock;
-            LastBlockHash = genesisBlock.Hash;
+            Snapshot = new ChainStateSnapshot();
+
+            Snapshot.LastBlock = genesisBlock;
+            Snapshot.LastBlockHash = genesisBlock.Hash;
             
-            Balances.Clear();
-            Contracts.Clear();
-            Ancestors.Clear();
+            BlockStorage.StoreBlock(genesisBlock);
             
             Ancestors.Add(LastBlockHash);
 
@@ -67,63 +128,73 @@ namespace Kmart
 
         public bool ValidateBlock(Block block)
         {
-            lock (LockObject)
+            lock (LockObject2)
             {
+                var currentHead = Snapshot.LastBlockHash;
                 (var isValid, var rollback) = ProcessBlock(block);
-                rollback?.ExecuteRollback();
+                LoadSnapshot(currentHead);
+                //rollback?.ExecuteRollback();
                 return isValid;
             }
         }
         
         public (bool, RollbackContext?) ProcessBlock(Block block)
         {
-            var blockRollback = new RollbackContext();
-            try
+            lock (LockObject)
             {
-                block.CalculateHash();
-
-                if (!block.Parent.SequenceEqual(LastBlockHash))
+                var blockRollback = new RollbackContext();
+                try
                 {
-                    throw new Exception($"Block {block.Height}/{block.Hash.ToPrettyString()} parent hash {block.Parent.ToPrettyString()} does not match chain state's last block hash {LastBlock.Height}/{LastBlockHash.ToPrettyString()}");
+                    block.CalculateHash();
+
+                    if (!block.Parent.SequenceEqual(LastBlockHash))
+                    {
+                        throw new Exception(
+                            $"Block {block.Height}/{block.Hash.ToPrettyString()} parent hash {block.Parent.ToPrettyString()} does not match chain state's last block hash {LastBlock.Height}/{LastBlockHash.ToPrettyString()}");
+                    }
+
+                    if (block.Height != LastBlock.Height + 1)
+                    {
+                        throw new Exception($"Block {block.Height} is too far ahead of {LastBlock.Height}");
+                    }
+
+                    for (int i = 0; i < block.Transactions.Length; i++)
+                    {
+                        ProcessTransaction(block.Transactions[i], i);
+                        blockRollback.AddRollbackActions(CurrentRollbackContext);
+                    }
+
+                    Logger.LogInformation(
+                        $"Processed block {block.Hash.ToPrettyString()}: state advanced from height {LastBlock.Height} to {block.Height}");
+
+                    var prevLastBlock = LastBlock;
+                    var prevLastBlockHash = LastBlockHash;
+
+                    blockRollback.AddRollbackAction(() =>
+                    {
+                        Ancestors.Remove(block.Hash);
+                        Snapshot.LastBlock = prevLastBlock;
+                        Snapshot.LastBlockHash = prevLastBlockHash;
+                    });
+
+                    Ancestors.Add(block.Hash);
+                    Snapshot.LastBlockHash = block.Hash;
+                    Snapshot.LastBlock = block;
+
+                    BlockStorage.StoreBlock(block);
+                    var snapshotBytes = Snapshot.SaveSnapshot();
+                    File.WriteAllBytes(BlobManager.GetPath(block.Hash, BlobManager.StateSnapshotKey), snapshotBytes);
+                }
+                catch (Exception e)
+                {
+                    blockRollback.ExecuteRollback();
+                    Logger.LogError(e,
+                        $"Failed to process block {block.Height}/{block.Hash.ToPrettyString()}, current block {LastBlock.Height}/{LastBlockHash.ToPrettyString()}");
+                    return (false, null);
                 }
 
-                if (block.Height != LastBlock.Height + 1)
-                {
-                    throw new Exception($"Block {block.Height} is too far ahead of {LastBlock.Height}");
-                }
-
-                for (int i = 0; i < block.Transactions.Length; i++)
-                {
-                    ProcessTransaction(block.Transactions[i], i);
-                    blockRollback.AddRollbackActions(CurrentRollbackContext);
-                }
-                
-                Logger.LogInformation($"Processed block {block.Hash.ToPrettyString()}: state advanced from height {LastBlock.Height} to {block.Height}");
-
-                var prevLastBlock = LastBlock;
-                var prevLastBlockHash = LastBlockHash;
-
-                blockRollback.AddRollbackAction(() =>
-                {
-                    Ancestors.Remove(block.Hash);
-                    LastBlock = prevLastBlock;
-                    LastBlockHash = prevLastBlockHash;
-                });
-                
-                Ancestors.Add(block.Hash);
-                LastBlockHash = block.Hash;
-                LastBlock = block;
-
-                BlockStorage.StoreBlock(block);
+                return (true, blockRollback);
             }
-            catch (Exception e)
-            {
-                blockRollback.ExecuteRollback();
-                Logger.LogError(e, $"Failed to process block {block.Height}/{block.Hash.ToPrettyString()}");
-                return (false, null);
-            }
-
-            return (true, blockRollback);
         }
 
         void FailTransactionWithPunishment()
@@ -253,7 +324,8 @@ namespace Kmart
                     CurrentRollbackContext.AddRollbackAction(() =>
                     {
                         Contracts.Remove(contractHash);
-                        File.Delete(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey));
+                        // File.Delete(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey));
+                        Logger.LogInformation($"Executed rollback of tx {transaction.Hash.ToPrettyString()}");
                     });
                     break;
                 }
@@ -287,7 +359,10 @@ namespace Kmart
                     receipt.Call = call;
                     
                     var callResult = ContractExecutor.Execute(receipt.Call, transaction, this, receipt);
-
+                    
+                    if (callResult?.RollbackContext is not null)
+                        CurrentRollbackContext.AddRollbackActions(callResult.RollbackContext);
+                    
                     if (callResult is null || !callResult.Verified)
                     {
                         throw new Exception("Contract call failed to verify");

@@ -13,11 +13,12 @@ public class BlockStorage
     public Dictionary<byte[], Block> BlocksByHash = new(new ByteArrayComparer());
 
     private readonly BlobManager BlobManager;
-    private readonly ILogger<BlobManager> Logger;
+    private readonly ILogger<BlockStorage> Logger;
     
-    public BlockStorage(BlobManager blobManager)
+    public BlockStorage(BlobManager blobManager, ILogger<BlockStorage> logger)
     {
         BlobManager = blobManager ?? throw new ArgumentNullException(nameof(blobManager));
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
     
     public Block? GetBlock(ulong height)
@@ -37,7 +38,10 @@ public class BlockStorage
         {
             var path = BlobManager.GetPath(hash, BlobManager.BlockKey);
             if (!File.Exists(path))
+            {
+                Logger.LogWarning($"Could not find block {hash.ToPrettyString()}");
                 return null;
+            }
 
             try
             {
@@ -76,6 +80,7 @@ public class BlockStorage
             BlocksByHeight[block.Height].Add(block);
             BlocksByHash[block.Hash] = block;
             
+            Logger.LogInformation($"Stored block {block.Height}/{block.Hash.ToPrettyString()}");
             File.WriteAllBytes(BlobManager.GetPath(block.Hash, BlobManager.BlockKey), SszContainer.Serialize(block));
         }
     }
