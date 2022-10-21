@@ -1,6 +1,4 @@
-using System.Linq;
-using System.Security.Cryptography;
-using System.Text.Json;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Nethereum.Model;
 using SszSharp;
@@ -10,26 +8,6 @@ namespace Kmart
     
     public class Block
     {
-        /*
-         * Execution block header struct
-         *     parent_hash: Hash32
-    ommers_hash: Hash32
-    coinbase: Address
-    state_root: Root
-    transactions_root: Root
-    receipt_root: Root
-    bloom: Bloom
-    difficulty: Uint
-    number: Uint
-    gas_limit: Uint
-    gas_used: Uint
-    timestamp: U256
-    extra_data: Bytes
-    mix_digest: Bytes32
-    nonce: Bytes8
-    base_fee_per_gas: Uint
-         */
-        
         public static SszContainer<Block> SszType = SszContainer.GetContainer<Block>(); 
         
         [JsonIgnore]
@@ -72,10 +50,15 @@ namespace Kmart
                 StateRoot = new byte[32]
             };
         }
+
+        public List<DepositData> GetDeposits()
+        {
+            // TODO: Parse special Kmart-native validator deposit transaction
+            return new List<DepositData>();
+        }
         
         public void CalculateHash()
         {
-            //Hash = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(this));
             Hash = new byte[32];
             Hash = Merkleizer.HashTreeRoot(SszType, this);
         }

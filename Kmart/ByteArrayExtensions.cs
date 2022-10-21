@@ -49,5 +49,8 @@ namespace Kmart
         }
 
         public static ulong ToQuantity(this string hexStr) => BitConverter.ToUInt64(hexStr.ToByteArray(8).Reverse().ToArray());
+
+        public static string EncodeQuantity(this ulong quantity) => BitConverter.GetBytes(quantity).Reverse().ToArray()
+            .ToPrettyString(prefix: true, skipZeroes: true);
     }
 }
