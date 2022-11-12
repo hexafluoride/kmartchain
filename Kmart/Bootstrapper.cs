@@ -1,5 +1,6 @@
 using System;
 using Autofac;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 
@@ -7,7 +8,7 @@ namespace Kmart
 {
     public static class Bootstrapper
     {
-        public static IContainer Bootstrap()
+        public static IContainer Bootstrap(IConfiguration configuration)
         {
             var builder = new ContainerBuilder();
 
@@ -17,6 +18,10 @@ namespace Kmart
             builder.RegisterType<ChainState>().AsSelf();
             builder.RegisterType<QemuManager>().AsSelf();
             builder.RegisterType<ExecutionLayerServer>().AsSelf();
+            builder.RegisterType<FakeEthereumBlockSource>().AsSelf();
+
+            builder.RegisterInstance<IConfiguration>(configuration);
+            builder.RegisterInstance(configuration.Get<KmartConfiguration>());
             
             builder.RegisterGeneric(typeof(Logger<>)).As(typeof(ILogger<>)).SingleInstance();
             builder.Register(handler => LoggerFactory.Create(configure =>

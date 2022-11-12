@@ -17,9 +17,9 @@ namespace Kmart
         public Dictionary<byte[], ulong> Balances { get; set; } = new(new ByteArrayComparer());
         [System.Text.Json.Serialization.JsonConverter(typeof(ByteArrayKeyDictionaryConverter<Contract>))]
         public Dictionary<byte[], Contract> Contracts { get; set; } = new(new ByteArrayComparer());
-        public byte[] LastBlockHash { get; set; } = new byte[0];
-        public Block LastBlock { get; set; }
-        public byte[] LastStateRoot { get; set; }
+        public byte[] LastBlockHash { get; set; } = new byte[32];
+        public Block? LastBlock { get; set; }
+        public byte[] LastStateRoot { get; set; } = new byte[32];
         public List<byte[]> Ancestors { get; set; } = new();
 
         public byte[] SaveSnapshot() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(this);
@@ -34,7 +34,7 @@ namespace Kmart
         public Dictionary<byte[], ulong> Balances => Snapshot.Balances;
         public Dictionary<byte[], Contract> Contracts => Snapshot.Contracts;
         public byte[] LastBlockHash => Snapshot.LastBlockHash;
-        public Block LastBlock => Snapshot.LastBlock;
+        public Block? LastBlock => Snapshot.LastBlock;
         public byte[] LastStateRoot => Snapshot.LastStateRoot;
         public List<byte[]> Ancestors => Snapshot.Ancestors;
 
@@ -141,7 +141,6 @@ namespace Kmart
                 var currentHead = Snapshot.LastBlockHash.ToArray();
                 (var isValid, var rollback) = ProcessBlock(block);
                 LoadSnapshot(currentHead);
-                //rollback?.ExecuteRollback();
                 return isValid;
             }
         }

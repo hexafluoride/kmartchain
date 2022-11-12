@@ -38,13 +38,22 @@ public class ExecutionLayerServer
     private readonly ChainState ChainState;
     private readonly ContractExecutor Executor;
     private readonly BlockStorage BlockStorage;
+    private readonly KmartConfiguration Configuration;
+    private readonly FakeEthereumBlockSource FakeEthereumBlockSource;
 
     public Dictionary<long, ExecutionPayload> Payloads = new();
     private readonly JsonSerializerOptions DefaultSerializerOptions = new JsonSerializerOptions()
     {
     };
 
-    public ExecutionLayerServer(ILogger<ExecutionLayerServer> logger, ChainState chainState, ContractExecutor contractExecutor, BlockStorage blockStorage)
+    public ExecutionLayerServer(
+        ILogger<ExecutionLayerServer> logger,
+        ChainState chainState,
+        ContractExecutor contractExecutor,
+        BlockStorage blockStorage,
+        KmartConfiguration configuration,
+        FakeEthereumBlockSource fakeEthereumBlockSource
+        )
     {
         HttpListener = new HttpListener();
         Algorithm = new HMACSHA256Algorithm();
@@ -52,6 +61,11 @@ public class ExecutionLayerServer
         ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
         Executor = contractExecutor ?? throw new ArgumentNullException(nameof(contractExecutor));
         BlockStorage = blockStorage ?? throw new ArgumentNullException(nameof(blockStorage));
+        Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        FakeEthereumBlockSource =
+            fakeEthereumBlockSource ?? throw new ArgumentNullException(nameof(fakeEthereumBlockSource));
+        
+        FakeEthereumBlockSource.UseChainState(chainState); // HACK
         
         IJsonSerializer serializer = new JsonNetSerializer();
         IDateTimeProvider provider = new UtcDateTimeProvider();
@@ -68,13 +82,8 @@ public class ExecutionLayerServer
         signerAddress = ((ECPublicKeyParameters) keypair.Public).Q.GetEncoded();
         signerAddress = signerAddress.Skip(signerAddress.Length - 20).ToArray();
 
-        var prefix = "http://127.0.0.1:8551/";
+        var prefix = $"http://{Configuration.RpcHost}:{Configuration.RpcPort}/";
 
-        if (Environment.GetEnvironmentVariable("ELS_PORT") is not null)
-        {
-            prefix = $"http://127.0.0.1:{Environment.GetEnvironmentVariable("ELS_PORT")}/";
-        }
-        
         HttpListener.Prefixes.Add(prefix);
         HttpListener.Start();
         Logger.LogInformation("Execution layer server started listening on prefixes {prefixes}", string.Join(", ", HttpListener.Prefixes));
@@ -128,151 +137,6 @@ public class ExecutionLayerServer
         }
     }
 
-    private int lastFakedHeight = 16;
-
-    class FakeEthereumBlock
-    {
-        public int Height { get; set; }
-        public int Timestamp { get; set; }
-        public string ParentHash { get; set; }
-        public string Hash { get; set; }
-        public string Difficulty { get; set; } 
-
-        public const string PreMergeDifficulty = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffbff";
-        public const string PostMergeDifficulty = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc01";
-
-        public object Encode()
-        {
-            return new
-            {
-                number = BitConverter.GetBytes(Height)
-                    .Reverse().ToArray().ToPrettyString(true, true),
-                hash = Hash,
-                parentHash = ParentHash,
-                nonce = new byte[8].ToPrettyString(prefix: true),
-                difficulty = Difficulty,
-                totalDifficulty = Difficulty,
-                timestamp = BitConverter.GetBytes(Timestamp)
-                    .Reverse().ToArray().ToPrettyString(true, true)
-            };
-        }
-    }
-
-    private Dictionary<string, FakeEthereumBlock> fakeBlocks = new();
-    private DateTime anchoringTime = DateTime.MinValue;
-    private int anchoringHeight = -1;
-
-    object? GetEthereumBlockAtHeight(string heightSpec)
-    {
-        var currentHeight = ChainState.LastBlock.Height;
-        var targetHeight = heightSpec.Equals("latest", StringComparison.InvariantCultureIgnoreCase)
-            ? (int)Math.Max(currentHeight, (double)lastFakedHeight + 1)
-            : (long)heightSpec.ToQuantity();
-
-        FakeEthereumBlock GetBlock(int newHeight)
-        {
-            var localRng = new Random(newHeight);
-            var newHash = new byte[32];
-            localRng.NextBytes(newHash);
-            var newHashStr = newHash.ToPrettyString(true);
-
-            if (fakeBlocks.ContainsKey(newHashStr))
-                return fakeBlocks[newHashStr];
-            
-            var lastHash = new byte[32];
-            var lastRng = new Random(newHeight - 1);
-                
-            if (newHeight != 0)
-                lastRng.NextBytes(lastHash);
-            
-            var time = DateTime.UtcNow;
-            var possibleRealMatch = ChainState.Ancestors.FirstOrDefault(ancestorHash =>
-                BlockStorage.GetBlock(ancestorHash)?.Height == (ulong) newHeight);
-            if (possibleRealMatch is not null)
-            {
-                var realBlock = BlockStorage.GetBlock(possibleRealMatch);
-                newHash = realBlock.Hash;
-                lastHash = realBlock.Parent;
-                time = DateTime.UnixEpoch + TimeSpan.FromSeconds(realBlock.Timestamp);
-            }
-            else
-            {
-                if (anchoringHeight == -1)
-                {
-                    anchoringHeight = newHeight;
-                    anchoringTime = time;
-                }
-                else
-                {
-                    var heightDiff = newHeight - anchoringHeight;
-                    time = anchoringTime + TimeSpan.FromSeconds(1 * heightDiff);
-                }
-            }
-            
-            var newBlock = new FakeEthereumBlock()
-            {
-                Height = newHeight,
-                Difficulty = newHeight > (int)mergeHeight ? FakeEthereumBlock.PostMergeDifficulty : FakeEthereumBlock.PreMergeDifficulty,
-                Hash = newHashStr,
-                ParentHash = lastHash.ToPrettyString(true),
-                Timestamp = (int) (time - DateTime.UnixEpoch).TotalSeconds
-            };
-
-            if (newHeight == (int)mergeHeight + 1)
-            {
-                newGenesisBlock = newBlock;
-                ResetFromGenesis();
-            }
-
-            if (newHeight > lastFakedHeight)
-                lastFakedHeight = newHeight;
-            fakeBlocks[newBlock.Hash] = newBlock;
-
-            return newBlock;
-        }
-
-        var matchingBlock = GetBlock((int)targetHeight);
-        return matchingBlock.Encode();
-    }
-
-    private List<DepositData> genesisDeposits = new();
-    private ulong mergeHeight = 19;
-
-    async Task<object> GetLogsResponse(JsonElement parameters)
-    {
-        var spec = parameters[0];
-        var fromBlockSpec = spec.GetProperty("fromBlock").GetString();
-        var toBlockSpec = spec.GetProperty("toBlock").GetString();
-        ulong fromBlock, toBlock;
-
-        if (fromBlockSpec == "latest")
-            fromBlock = (ulong)lastFakedHeight;
-        else
-        {
-            fromBlock = fromBlockSpec.ToQuantity();
-        }
-
-        if (toBlockSpec == "latest")
-            toBlock = (ulong) lastFakedHeight;
-        else
-        {
-            toBlock = toBlockSpec.ToQuantity();
-        }
-
-        var topic = spec.GetProperty("topics")[0].GetString();
-        
-        if (fromBlock <= mergeHeight && toBlock >= mergeHeight)
-        {
-            var mergeBlockHash = fakeBlocks.First(p => p.Value.Height == (int)mergeHeight).Key;
-            return genesisDeposits.Select((depositData, i) => depositData.CreateLogObject(mergeBlockHash, mergeHeight,
-                Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), 0,
-                Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), (ulong) i, topic)).ToArray();
-        }
-
-        // TODO: Look at native blocks to see if they create any deposits
-        return new object[0];
-    }
-    
     async Task ServeRequest(HttpListenerContext context, int id, string method, JsonElement parameters)
     {
         object? responseValue = null;
@@ -293,19 +157,44 @@ public class ExecutionLayerServer
             }
             case "eth_getLogs":
             {
-                responseValue = await GetLogsResponse(parameters);
+                responseValue = FakeEthereumBlockSource.GetLogsResponse(parameters);
                 break;
             }
             case "eth_getBlockByNumber":
             {
                 var heightSpec = parameters[0].GetString() ?? throw new Exception($"Could not obtain height spec");
-                responseValue = GetEthereumBlockAtHeight(heightSpec);
+                var currentHeight = ChainState.LastBlock.Height;
+                var targetHeight = heightSpec.Equals("latest", StringComparison.InvariantCultureIgnoreCase)
+                    ? (int)Math.Max(currentHeight, (double)FakeEthereumBlockSource.LastFakedHeight + 1)
+                    : (int)heightSpec.ToQuantity();
+
+                var resultBlock = FakeEthereumBlockSource.GetBlock(targetHeight);
+                if (resultBlock.Height == (int)(FakeEthereumBlockSource.MergeHeight + 1))
+                {
+                    newGenesisBlock = resultBlock;
+                    ResetFromGenesis();
+                }
+
+                responseValue = resultBlock.Encode();
                 break;
             }
             case "eth_getBlockByHash":
             {
                 var hashSpec = parameters[0].GetString() ?? throw new Exception($"Could not obtain hash spec");
-                responseValue = fakeBlocks.ContainsKey(hashSpec) ? fakeBlocks[hashSpec].Encode() : null;
+                var hash = hashSpec.StartsWith("0x") ? hashSpec.ToByteArray() :
+                    hashSpec.Length == 64 ? hashSpec.ToByteArray() : new byte[0];
+
+                if (hash.Length == 32 && ChainState.IsAncestorOfHead(hash))
+                {
+                    var realBlock = BlockStorage.GetBlock(hash);
+                    if (realBlock is not null)
+                    {
+                        FakeEthereumBlockSource.CreateFromRealBlock(realBlock);
+                    }
+                }
+
+                var resultBlock = FakeEthereumBlockSource.GetBlock(hash);
+                responseValue = resultBlock?.Encode();
                 break;
             }
             case "engine_forkchoiceUpdatedV1":
@@ -741,23 +630,23 @@ public class ExecutionLayerServer
     }
 
     private bool syncing = false;
+    
     private FakeEthereumBlock? newGenesisBlock;
     
     void ResetFromGenesis()
     {
         injectedTx = 0;
         var beaconStateType = SszContainer.GetContainer<BeaconState>();
-        var genesisPath = "/home/kate/.lighthouse/local-testnet/testnet/genesis.ssz";
-        //var genesisPath = "/home/kate/repos/prysm/devnet/genesis.ssz";
-        // var genesisPath = "/home/kate/repos/lodestar/genesis.ssz";
+        var genesisPath = Configuration.GenesisStatePath;
 
-        if (!genesisDeposits.Any())
+        if (!FakeEthereumBlockSource.GenesisDeposits.Any())
         {
             var validatorPaths = new List<string>();
             
             // ~/.lighthouse/local-testnet/node_1/validators/0x81283b7a20e1ca460ebd9bbd77005d557370cabb1f9a44f530c4c4c66230f675f8df8b4c2818851aa7d77a80ca5a4a5e/eth1-deposit-data.rlp
-
-            foreach (var nodeDir in Directory.GetDirectories("/home/kate/.lighthouse/local-testnet"))
+            var validatorRoot = Configuration.LighthouseValidatorDirectory;
+            
+            foreach (var nodeDir in Directory.GetDirectories(validatorRoot))
             {
                 if (nodeDir.Substring(0, nodeDir.Length - 1).EndsWith("node_"))
                 {
@@ -770,7 +659,7 @@ public class ExecutionLayerServer
             foreach (var validatorPath in validatorPaths)
             {
                 var depositTx = File.ReadAllText($"{validatorPath}/eth1-deposit-data.rlp");
-                genesisDeposits.Add(DepositData.FromDepositTransactionRlp(depositTx.ToByteArray()));
+                FakeEthereumBlockSource.GenesisDeposits.Add(DepositData.FromDepositTransactionRlp(depositTx.ToByteArray()));
             }
         }
         
@@ -850,10 +739,6 @@ public class ExecutionLayerServer
                     Block? headBlock;
 
                     Logger.LogInformation($"Syncing to head {head.ToPrettyString()}");
-
-                    // var targetHeadBlock = BlockStorage.GetBlock(head);
-                    // if (targetHeadBlock is not null)
-                    //     blockSequence.Add(targetHeadBlock);
 
                     while (!head.SequenceEqual(genesisHash) && !head.SequenceEqual(currentHead))
                     {

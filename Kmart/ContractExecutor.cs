@@ -69,6 +69,8 @@ namespace Kmart
                 ContractMessage? returnMessage = null;
                 bool executionReverted = false;
 
+                int callIndex = 0;
+
                 while (returnMessage is null && !executionReverted && qemuInstance.ProcessMessage())
                 {
                     if (qemuInstance.OutstandingRequest is not null)
@@ -140,7 +142,7 @@ namespace Kmart
                                 childCall.Source = transaction.Address;
                                 childCall.Contract = childCall.Contract;
 
-                                var childCallResult = this.Execute(childCall, transaction, chainState);
+                                var childCallResult = this.Execute(childCall, transaction, chainState, verify ? verifyReceipt?.ChildCalls?[callIndex++] : null);
                                 if (childCallResult is null || childCallResult.Receipt is null || childCallResult.RollbackContext is null)
                                 {
                                     throw new Exception("Subcall failed");

@@ -29,6 +29,10 @@ public class ReplayParser
             {
                 output.WriteLine($"Read event {(AsyncEventType)nextEvent.Contents[1][0]} (contents {nextEvent.Contents.Last().ToPrettyString()}) at {position:x8}");
             }
+            else if (nextEvent.Type == ReplayEventType.EVENT_INSTRUCTION)
+            {
+                output.WriteLine($"Read event {nextEvent.Type} at {position:x8} (instruction {BitConverter.ToUInt32(nextEvent.Contents[0].Reverse().ToArray())})");
+            }
             else
             {
                 output.WriteLine($"Read event {nextEvent.Type} at {position:x8}");
