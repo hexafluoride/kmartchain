@@ -40,8 +40,8 @@ public class ExecutionLayerServer
     private readonly BlockStorage BlockStorage;
     private readonly KmartConfiguration Configuration;
     private readonly FakeEthereumBlockSource FakeEthereumBlockSource;
+    private readonly PayloadManager PayloadManager;
 
-    public Dictionary<long, ExecutionPayload> Payloads = new();
     private readonly JsonSerializerOptions DefaultSerializerOptions = new JsonSerializerOptions()
     {
     };
@@ -52,7 +52,8 @@ public class ExecutionLayerServer
         ContractExecutor contractExecutor,
         BlockStorage blockStorage,
         KmartConfiguration configuration,
-        FakeEthereumBlockSource fakeEthereumBlockSource
+        FakeEthereumBlockSource fakeEthereumBlockSource,
+        PayloadManager payloadManager
         )
     {
         HttpListener = new HttpListener();
@@ -64,8 +65,10 @@ public class ExecutionLayerServer
         Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         FakeEthereumBlockSource =
             fakeEthereumBlockSource ?? throw new ArgumentNullException(nameof(fakeEthereumBlockSource));
+        PayloadManager = payloadManager ?? throw new ArgumentNullException(nameof(payloadManager));
         
         FakeEthereumBlockSource.UseChainState(chainState); // HACK
+        PayloadManager.UseChainState(chainState);
         
         IJsonSerializer serializer = new JsonNetSerializer();
         IDateTimeProvider provider = new UtcDateTimeProvider();
@@ -77,11 +80,6 @@ public class ExecutionLayerServer
 
     public void Start()
     {
-        var keypair = SignatureTools.GenerateKeypair();
-        signerPrivateKey = ((ECPrivateKeyParameters) keypair.Private).D.ToByteArrayUnsigned();
-        signerAddress = ((ECPublicKeyParameters) keypair.Public).Q.GetEncoded();
-        signerAddress = signerAddress.Skip(signerAddress.Length - 20).ToArray();
-
         var prefix = $"http://{Configuration.RpcHost}:{Configuration.RpcPort}/";
 
         HttpListener.Prefixes.Add(prefix);
@@ -222,7 +220,7 @@ public class ExecutionLayerServer
                     {
                         var payloadAttribs =
                             JsonConvert.DeserializeObject<PayloadAttributesV1>(parameters[1].GetRawText());
-                        var payloadId = CreatePayload(payloadAttribs);
+                        var payloadId = PayloadManager.CreatePayload(payloadAttribs);
                         responseValue = new
                         {
                             payloadStatus =
@@ -285,7 +283,7 @@ public class ExecutionLayerServer
                         {
                             var payloadAttribs =
                                 JsonConvert.DeserializeObject<PayloadAttributesV1>(parameters[1].GetRawText());
-                            var payloadId = CreatePayload(payloadAttribs);
+                            var payloadId = PayloadManager.CreatePayload(payloadAttribs);
                             responseValue = new
                             {
                                 payloadStatus =
@@ -310,16 +308,18 @@ public class ExecutionLayerServer
             case "engine_getPayloadV1":
             {
                 var payloadId = (long) BitConverter.ToUInt64(parameters[0].GetString().ToByteArray());
+                var payload = PayloadManager.GetPayload(payloadId);
 
-                if (!Payloads.ContainsKey(payloadId))
+                if (payload is null)
                 {
                     errorCode = -38001;
                     errorMessage = "Unknown payload";
                 }
                 else
                 {
-                    CreateBlockFromPayload(Payloads[payloadId]);
-                    responseValue = ExecutionPayloadWrapper.FromPayload(Payloads[payloadId]);
+                    // The call to CreateBlockFromPayload here is to calculate and embed the block hash into the payload.
+                    PayloadManager.CreateBlockFromPayload(payload);
+                    responseValue = ExecutionPayloadWrapper.FromPayload(payload);
                 }
             }
             break;
@@ -327,8 +327,9 @@ public class ExecutionLayerServer
             {
                 var payloadWrapped = JsonSerializer.Deserialize<ExecutionPayloadWrapper>(parameters[0]);
                 var payload = payloadWrapped.Payload;
-                var localBlock = CreateBlockFromPayload(payload);
+                var localBlock = PayloadManager.CreateBlockFromPayload(payload);
                 BlockStorage.StoreBlock(localBlock);
+                
                 // Extends the canonical chain
                 if (payload.BlockNumber > ChainState.LastBlock.Height)
                 {
@@ -448,194 +449,14 @@ public class ExecutionLayerServer
         context.Response.ContentType = "application/json";
     }
     
-    Block CreateBlockFromPayload(ExecutionPayload payload)
-    {
-        lock (payload)
-        {
-            var block = new Block()
-            {
-                Height = payload.BlockNumber,
-                Coinbase = payload.FeeRecipient,
-                Nonce = new byte[8],
-                Hash = payload.BlockHash,
-                Parent = payload.Root,
-                Timestamp = payload.Timestamp,
-                Transactions = payload.Transactions.Select(txBytes => Transaction.Deserialize(txBytes).Item1).ToArray(),
-            };
-            block.CalculateHash();
-            payload.BlockHash = block.Hash;
-            return block;
-        }
-    }
-    long CreatePayload(PayloadAttributesV1 attribs)
-    {
-        var payload = new ExecutionPayload()
-        {
-            Timestamp = (ulong)attribs.Timestamp.Value,
-            FeeRecipient = attribs.SuggestedFeeRecipient.ToByteArray(),
-            PrevRandao = attribs.PrevRandao.ToByteArray(),
-            BaseFeePerGas = 1,
-            BlockHash = new byte[32],
-            BlockNumber = ChainState.LastBlock.Height + 1,
-            ExtraData = new byte[1],
-            GasLimit = int.MaxValue,
-            GasUsed = 0,
-            LogsBloom = new byte[256],
-            Root = ChainState.LastBlockHash,
-            StateRoot = ChainState.LastStateRoot ?? new byte[32],
-            Transactions = new List<byte[]>(),
-            ReceiptsRoot = new byte[32]
-        };
-        
-        var payloadId = Random.Shared.NextInt64();
-        Payloads[payloadId] = payload;
-
-        CreateBlockFromPayload(payload);
-        InjectTransactionsIntoPayload(payloadId);
-        return payloadId;
-    }
-
-    private Random eth1Rng = new Random(1);
-    private int injectedTx = 0;
-    private byte[] signerPrivateKey = new byte[32];
-    private byte[] signerAddress = new byte[20];
-    void InjectTransactionsIntoPayload(long payloadId)
-    {
-        try
-        {
-            Transaction SignTransaction(Transaction transaction)
-            {
-                transaction.CalculateHash();
-                transaction.Signature = SignatureTools.GenerateSignature(transaction.Hash, signerPrivateKey);
-                return transaction;
-            }
-
-            Transaction CreateDeploy(string imagePath, string[] functions, bool multiboot = false,
-                string initrdPath = "")
-            {
-                return new Transaction()
-                {
-                    Timestamp = 1662165113,
-                    Address = signerAddress,
-                    FeePerByte = 0,
-                    Nonce = (ulong) injectedTx++,
-                    Type = TransactionType.Deploy,
-                    Payload = new ContractDeployPayload()
-                    {
-                        // TODO: Support barebones multiboot images
-                        Image = File.ReadAllBytes(imagePath),
-                        Functions = functions,
-                        BootType = multiboot ? ContractBootType.Multiboot : ContractBootType.Legacy,
-                        Initrd = string.IsNullOrWhiteSpace(initrdPath) ? new byte[0] : File.ReadAllBytes(initrdPath)
-                    }.Serialize()
-                };
-            }
-
-            Transaction? CreateContractCall(string function, byte[] calldata)
-            {
-                var contractAddr = ChainState.Contracts.Single().Key;
-                // if (File.Exists($"./tx-{nthtx}"))
-                // {
-                //     var loadedTx = JsonSerializer.Deserialize<Transaction>(File.ReadAllText($"./tx-{nthtx}"));
-                //     var payload = ContractInvokePayload.FromTransaction(loadedTx);
-                //     File.WriteAllBytes($"./trace-{nthtx}",payload.ExecutionTrace);
-                //     nthtx++;
-                //     return loadedTx;
-                // }
-                var contract = ChainState.Contracts[contractAddr];
-                var contractCallData = new ContractCall()
-                {
-                    Contract = contractAddr,
-                    CallData = calldata,
-                    Function = function
-                };
-
-                var executionTx = new Transaction()
-                {
-                    Timestamp = 1662165113,
-                    Address = signerAddress,
-                    FeePerByte = 0,
-                    Nonce = (ulong) injectedTx,
-                    Type = TransactionType.Invoke
-                };
-
-                var sw = Stopwatch.StartNew();
-                lock (ChainState.LockObject)
-                {
-                    var callResult = Executor.Execute(contractCallData, executionTx, ChainState) ??
-                                     throw new Exception("what");
-                    var receipt = callResult.Receipt.Value;
-                    callResult.RollbackContext.ExecuteRollback();
-
-                    try
-                    {
-                        // Verify receipt that we just created
-                        var verifyResult = Executor.Execute(contractCallData, executionTx, ChainState, receipt);
-                        verifyResult.RollbackContext.ExecuteRollback();
-                        if (!verifyResult.Verified)
-                        {
-                            throw new Exception($"Failed to verify generated receipt");
-                        }
-
-                        var executionPayload = ContractInvokePayload.FromReceipt(receipt);
-
-                        Logger.LogInformation(
-                            $"Calldata for {function} is {calldata.ToPrettyString()}, return value is {receipt.ReturnValue.ToPrettyString()}, call took {sw.Elapsed}, {receipt.InstructionCount} instructions");
-                        executionTx.Payload = executionPayload.SerializeWithTrace();
-
-                        //File.WriteAllText($"./tx-{n++}", JsonSerializer.Serialize(executionTx));
-
-                        injectedTx++;
-                        return executionTx;
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.LogError(e, "Failed to generate contract call to inject");
-                        return null;
-                    }
-                }
-            }
-
-            Transaction? txToInject = null;
-            if (injectedTx == 0 && !ChainState.Contracts.Any())
-            {
-                txToInject = CreateDeploy("/home/kate/repos/x86-bare-metal-examples/multiboot/osdev/iso/boot/token.elf",
-                    new[] {"read", "write", "hash", "mint", "get_balance", "transfer"}, multiboot: true);
-            }
-            else
-            {
-                txToInject = CreateContractCall(injectedTx % 2 == 1 ? "write" : "read", new byte[0]);
-            }
-
-            if (txToInject is null)
-            {
-                Logger.LogWarning($"Could not inject tx into payload {payloadId}");
-                return;
-            }
-
-            txToInject = SignTransaction(txToInject);
-            var payload = Payloads[payloadId];
-            var buf = new byte[16777216];
-            var written = txToInject.Serialize(new Span<byte>(buf));
-            var newArray = new byte[written];
-            //buf.CopyTo(newArray, 0);
-            Array.Copy(buf, 0, newArray, 0, written);
-            payload.Transactions.Add(newArray);
-
-        }
-        catch (Exception e)
-        {
-            Logger.LogError(e, $"Failed to inject tx {injectedTx} into payload {payloadId}");
-        }
-    }
-
-    private bool syncing = false;
-    
+    private bool syncing;
     private FakeEthereumBlock? newGenesisBlock;
     
     void ResetFromGenesis()
     {
-        injectedTx = 0;
+        // TODO: Implement actual mempool
+        PayloadManager.InjectedTx = 0;
+        
         var beaconStateType = SszContainer.GetContainer<BeaconState>();
         var genesisPath = Configuration.GenesisStatePath;
 
@@ -690,7 +511,6 @@ public class ExecutionLayerServer
         ChainState.SetGenesisState(deserializedState);
         ChainState.Snapshot.LastStateRoot = Merkleizer.HashTreeRoot(beaconStateType, deserializedState);
         Logger.LogInformation($"Loaded genesis state with root hash {ChainState.LastStateRoot.ToPrettyString()}");
-
     }
 
     List<Block> GetFastForwardList(Block sourceBlock, Block targetBlock)

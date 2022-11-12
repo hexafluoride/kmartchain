@@ -19,6 +19,7 @@ namespace Kmart
             builder.RegisterType<QemuManager>().AsSelf();
             builder.RegisterType<ExecutionLayerServer>().AsSelf();
             builder.RegisterType<FakeEthereumBlockSource>().AsSelf();
+            builder.RegisterType<PayloadManager>().AsSelf();
 
             builder.RegisterInstance<IConfiguration>(configuration);
             builder.RegisterInstance(configuration.Get<KmartConfiguration>());
