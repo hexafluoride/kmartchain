@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -9,24 +10,27 @@ namespace Kmart
     public class ContractInvokePayload
     {
         [SszElement(0, "Vector[uint8, 20]")]
-        public byte[] Target { get; set; }
+        public byte[] Target { get; set; } = new byte[20];
         [SszElement(1, "List[uint8, 1024]")]
         public byte[] FunctionBytes
         {
             get => Encoding.UTF8.GetBytes(Function);
             set => Function = Encoding.UTF8.GetString(value);
         }
-        public string Function { get; set; }
+
+        public string Function { get; set; } = "";
+
         [SszElement(2, "List[uint8, 16777216]")]
-        public byte[] CallData { get; set; }
+        public byte[] CallData { get; set; } = new byte[0];
+
         [SszElement(3, "List[uint8, 16777216]")]
-        public byte[] ReturnValue { get; set; }
-        
+        public byte[] ReturnValue { get; set; } = new byte[0];
+
         [SszElement(4, "List[uint8, 16777216]")]
-        public byte[] ExecutionTrace { get; set; }
-        
+        public byte[] ExecutionTrace { get; set; } = new byte[0];
+
         [SszElement(5, "List[uint8, 16777216]")]
-        public byte[] StateLog { get; set; }
+        public byte[] StateLog { get; set; } = new byte[0];
         
         [SszElement(6, "uint64")]
         public ulong InstructionCount { get; set; }
@@ -43,7 +47,7 @@ namespace Kmart
         }
 
         private List<byte[]> ChildCallsBacking = new();
-        public ContractInvokePayload[] ChildCalls { get; set; }
+        public ContractInvokePayload[] ChildCalls { get; set; } = Array.Empty<ContractInvokePayload>();
 
         public static ContractInvokePayload FromReceipt(ContractInvocationReceipt receipt)
         {

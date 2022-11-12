@@ -14,8 +14,8 @@ namespace Kmart
             Type typeToConvert,
             JsonSerializerOptions options)
         {
-            var dic = (Dictionary<string, TValue>)JsonSerializer
-                .Deserialize(ref reader, typeof(Dictionary<string, TValue>), options);
+            var dic = (Dictionary<string, TValue>)(JsonSerializer
+                .Deserialize(ref reader, typeof(Dictionary<string, TValue>), options) ?? throw new Exception($"Failed to deserialize"));
             return dic.ToDictionary(k => k.Key.ToByteArray(), k => k.Value, new ByteArrayComparer());
         }
 
@@ -32,7 +32,7 @@ namespace Kmart
     
     public class ByteArrayComparer : EqualityComparer<byte[]>
     {
-        public override bool Equals(byte[] first, byte[] second)
+        public override bool Equals(byte[]? first, byte[]? second)
         {
             if (first == null || second == null) {
                 // null == null returns true.

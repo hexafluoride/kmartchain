@@ -152,9 +152,9 @@ public class FakeEthereumBlock
 {
     public int Height { get; set; }
     public int Timestamp { get; set; }
-    public string ParentHash { get; set; }
-    public string Hash { get; set; }
-    public string Difficulty { get; set; } 
+    public string ParentHash { get; set; } = "0x0";
+    public string Hash { get; set; } = "0x0";
+    public string Difficulty { get; set; } = "0x0";
 
     public const string PreMergeDifficulty = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffbff";
     public const string PostMergeDifficulty = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc01";

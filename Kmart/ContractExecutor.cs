@@ -40,7 +40,7 @@ namespace Kmart
                 throw new Exception($"Contract {call.Contract.ToPrettyString()} does not exist");
             }
             
-            QemuInstance qemuInstance = default;
+            QemuInstance? qemuInstance = null;
             var contract = chainState.Contracts[call.Contract];
             var callRollbackContext = new RollbackContext();
             bool verify = verifyReceipt is not null;
@@ -203,6 +203,11 @@ namespace Kmart
 
                 if (verify)
                 {
+                    if (verifyReceipt is null)
+                    {
+                        throw new Exception("This is just to shut up the static nullability analyzer");
+                    }
+
                     var returnMessageMatch = returnMessage.Value.Payload.SequenceEqual(verifyReceipt.Value.ReturnValue);
                     var stateChangeMatch = stateChangeHash.SequenceEqual(verifyReceipt.Value.StateLog);
                     var instructionCountMatch = instructionCount == verifyReceipt.Value.InstructionCount;

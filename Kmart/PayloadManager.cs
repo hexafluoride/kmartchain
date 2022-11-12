@@ -71,7 +71,7 @@ public class PayloadManager
             PrevRandao = attribs.PrevRandao.ToByteArray(),
             BaseFeePerGas = 1,
             BlockHash = new byte[32],
-            BlockNumber = ChainState.LastBlock.Height + 1,
+            BlockNumber = ChainState.LastBlock!.Height + 1,
             ExtraData = new byte[1],
             GasLimit = int.MaxValue,
             GasUsed = 0,
@@ -91,8 +91,8 @@ public class PayloadManager
     }
 
     private Random eth1Rng = new Random(1);
-    private byte[] signerPrivateKey = new byte[32];
-    private byte[] signerAddress = new byte[20];
+    private byte[] signerPrivateKey;
+    private byte[] signerAddress;
     
     // TODO: Replace this with a generic transaction injector object, a mempool impl in production and something like this for testing.
     void InjectTransactionsIntoPayload(long payloadId)
@@ -159,15 +159,17 @@ public class PayloadManager
                 lock (ChainState.LockObject)
                 {
                     var callResult = Executor.Execute(contractCallData, executionTx, ChainState) ??
-                                     throw new Exception("what");
-                    var receipt = callResult.Receipt.Value;
-                    callResult.RollbackContext.ExecuteRollback();
+                                     throw new Exception("Execution failed");
+                    
+                    var receipt = callResult.Receipt ?? throw new Exception($"Execution yielded no receipt");
+                    callResult.RollbackContext?.ExecuteRollback();
 
                     try
                     {
                         // Verify receipt that we just created
-                        var verifyResult = Executor.Execute(contractCallData, executionTx, ChainState, receipt);
-                        verifyResult.RollbackContext.ExecuteRollback();
+                        var verifyResult = Executor.Execute(contractCallData, executionTx, ChainState, receipt) ??
+                                           throw new Exception($"Failed to verify execution we created");
+                        verifyResult.RollbackContext?.ExecuteRollback();
                         if (!verifyResult.Verified)
                         {
                             throw new Exception($"Failed to verify generated receipt");
@@ -192,7 +194,7 @@ public class PayloadManager
                 }
             }
 
-            Transaction? txToInject = null;
+            Transaction? txToInject;
             if (InjectedTx == 0 && !ChainState.Contracts.Any())
             {
                 txToInject = CreateDeploy("/home/kate/repos/x86-bare-metal-examples/multiboot/osdev/iso/boot/token.elf",
@@ -211,12 +213,7 @@ public class PayloadManager
 
             txToInject = SignTransaction(txToInject);
             var payload = Payloads[payloadId];
-            var buf = new byte[16777216];
-            var written = txToInject.Serialize(new Span<byte>(buf));
-            var newArray = new byte[written];
-            //buf.CopyTo(newArray, 0);
-            Array.Copy(buf, 0, newArray, 0, written);
-            payload.Transactions.Add(newArray);
+            payload.Transactions.Add(SszContainer.Serialize(txToInject));
 
         }
         catch (Exception e)

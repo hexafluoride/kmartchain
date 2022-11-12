@@ -6,10 +6,10 @@ namespace Kmart;
 
 public class DepositData
 {
-    [SszElement(0, "Vector[uint8, 48]")] public byte[] Pubkey { get; set; }
-    [SszElement(1, "Vector[uint8, 32]")] public byte[] WithdrawalCredentials { get; set; }
+    [SszElement(0, "Vector[uint8, 48]")] public byte[] Pubkey { get; set; } = new byte[48];
+    [SszElement(1, "Vector[uint8, 32]")] public byte[] WithdrawalCredentials { get; set; } = new byte[32];
     [SszElement(2, "uint64")] public ulong DepositAmount { get; set; }
-    [SszElement(3, "Vector[uint8, 96]")] public byte[] Signature { get; set; }
+    [SszElement(3, "Vector[uint8, 96]")] public byte[] Signature { get; set; } = new byte[96];
     public ulong Index { get; set; }
     public static ulong TotalDeposits = 0;
 

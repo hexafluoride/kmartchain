@@ -8,25 +8,26 @@ namespace Kmart
     
     public class Block
     {
-        public static SszContainer<Block> SszType = SszContainer.GetContainer<Block>(); 
-        
+        public static SszContainer<Block> SszType = SszContainer.GetContainer<Block>();
+
         [JsonIgnore]
         [SszElement(0, "Vector[uint8, 32]")]
-        public byte[] Hash { get; set; }
+        public byte[] Hash { get; set; } = new byte[32];
+
         [SszElement(1, "Vector[uint8, 8]")]
-        public byte[] Nonce { get; set; }
+        public byte[] Nonce { get; set; } = new byte[8];
         [SszElement(2, "Vector[uint8, 32]")]
-        public byte[] Parent { get; set; }
+        public byte[] Parent { get; set; } = new byte[32];
         
         [SszElement(3, "uint64")]
         public ulong Timestamp { get; set; }
-        
+
         [SszElement(4, "List[Container, 65536]")]
-        public Transaction[] Transactions { get; set; }
+        public Transaction[] Transactions { get; set; } = new Transaction[0];
         [SszElement(5, "uint64")]
         public ulong Height { get; set; }
         [SszElement(6, "Vector[uint8, 20]")]
-        public byte[] Coinbase { get; set; }
+        public byte[] Coinbase { get; set; } = new byte[20];
 
         public BlockHeader GetEthBlockHeader()
         {

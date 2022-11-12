@@ -1,9 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace Kmart
@@ -24,7 +22,7 @@ namespace Kmart
         public QemuInstance? StartReplay(ChainState chainState, ContractInvocationReceipt receipt)
         {
             var tempDir = Path.GetTempFileName();
-            var logFile = Path.GetTempFileName();
+            // var logFile = Path.GetTempFileName();
             File.Delete(tempDir);
             Directory.CreateDirectory(tempDir);
             
@@ -34,12 +32,9 @@ namespace Kmart
             var serialPath = $"{tempDir}/contract_output";
             var qemuMonitorPath = $"{tempDir}/qemu_monitor";
 
-            Process? qemuProcess = null;
-            
             // Set up QEMU state
             var contract = chainState.Contracts[receipt.Call.Contract];
-            
-            
+
             File.WriteAllBytes(replayPath, receipt.ExecutionTrace);
 
             var qemuBinary = "/usr/bin/qemu-system-x86_64";
@@ -79,7 +74,7 @@ namespace Kmart
             var psi = new ProcessStartInfo(qemuBinary, qemuCommandLine);
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
-            qemuProcess = Process.Start(psi);
+            var qemuProcess = Process.Start(psi);
 
             if (qemuProcess == null)
                 return null;
@@ -103,7 +98,7 @@ namespace Kmart
         public QemuInstance StartRecord(ChainState chainState, ContractCall call)
         {
             var tempDir = Path.GetTempFileName();
-            var logFile = Path.GetTempFileName();
+            // var logFile = Path.GetTempFileName();
             File.Delete(tempDir);
             Directory.CreateDirectory(tempDir);
 
@@ -234,6 +229,7 @@ namespace Kmart
             }
             catch (Exception e)
             {
+                Logger.LogError(e, $"Failed to shutdown");
             }
 
             State = GuestState.Done;
@@ -290,9 +286,6 @@ namespace Kmart
                 message.Write(SerialPort);
                 SerialPort.Flush();
             }
-            else
-            {
-            }
         }
         
         public void FulfillRequest(ContractMessage response)
@@ -326,8 +319,6 @@ namespace Kmart
                 case MessageType.Call:
                     OutstandingRequest = message;
                     break;
-                default:
-                    break;
             }
 
             return true;
@@ -354,9 +345,8 @@ namespace Kmart
         public ulong GetInstructionCount()
         {
             WriteToMonitor("info replay");
-            var line = "";
 
-            while ((line = MonitorReader.ReadLine()) is not null)
+            while (MonitorReader.ReadLine() is { } line)
             {
                 if (!line.StartsWith("Recording execution") && !line.StartsWith("Replaying execution"))
                     continue;

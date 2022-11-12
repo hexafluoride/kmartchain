@@ -12,7 +12,7 @@ namespace Kmart
 
         [JsonIgnore]
         [SszElement(0, "Vector[uint8, 32]")]
-        public byte[] Hash { get; set; }
+        public byte[] Hash { get; set; } = new byte[32];
         [SszElement(1, "uint8")]
         public byte TypeByte { get; set; }
         public TransactionType Type
@@ -20,21 +20,22 @@ namespace Kmart
             get => (TransactionType) TypeByte;
             set => TypeByte = (byte) value;
         }
-        
+
         [SszElement(2, "Vector[uint8, 20]")]
-        public byte[] Address { get; set; }
+        public byte[] Address { get; set; } = new byte[20];
         [SszElement(3, "uint64")]
         public ulong Nonce { get; set; }
+
         [SszElement(4, "Vector[uint8, 64]")]
-        public byte[] Signature { get; set; }
+        public byte[] Signature { get; set; } = new byte[64];
         [SszElement(5, "uint64")]
         public ulong Timestamp { get; set; }
         
         [SszElement(6, "uint64")]
         public ulong FeePerByte { get; set; }
-        
+
         [SszElement(7, "List[uint8, 16777216]")]
-        public byte[] Payload { get; set; }
+        public byte[] Payload { get; set; } = new byte[0];
 
         public void CalculateHash()
         {

@@ -6,8 +6,8 @@ namespace Kmart
 {
     public class Contract
     {
-        public byte[] Address { get; set; }
-        public HashSet<string> Functions { get; set; }
+        public byte[] Address { get; set; } = new byte[20];
+        public HashSet<string> Functions { get; set; } = new();
 
         [JsonConverter(typeof(ByteArrayKeyDictionaryConverter<byte[]>))]
         public Dictionary<byte[], byte[]> State { get; set; } = new(new ByteArrayComparer());

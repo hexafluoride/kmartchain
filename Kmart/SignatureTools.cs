@@ -27,7 +27,7 @@ public class SignatureTools
         int i = recid / 2;
 
         BigInteger order = ecParams.N;
-        BigInteger field = (ecParams.Curve as FpCurve).Q;
+        BigInteger field = (ecParams.Curve as FpCurve)!.Q;
         BigInteger x = order.Multiply(new BigInteger(i.ToString())).Add(sig[0]);
         if (x.CompareTo(field) >= 0) throw new Exception("X too large");
 
@@ -42,7 +42,7 @@ public class SignatureTools
             if (!O.IsInfinity) throw new Exception("Check failed");
         }
 
-        int n = (ecParams.Curve as FpCurve).Q.ToByteArrayUnsigned().Length * 8;
+        int n = (ecParams.Curve as FpCurve)!.Q.ToByteArrayUnsigned().Length * 8;
         BigInteger e = new BigInteger(1, hash);
         if (8 * hash.Length > n)
         {

@@ -1,14 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using JWT;
@@ -16,18 +11,10 @@ using JWT.Algorithms;
 using JWT.Serializers;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Org.BouncyCastle.Crypto.Parameters;
 using SszSharp;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace Kmart;
-
-public class ExecutionLayerState
-{
-    public byte[] HeadBlock { get; set; }
-    public byte[] FinalizedBlock { get; set; }
-    public ulong HeadHeight { get; set; }
-}
 
 public class ExecutionLayerServer
 {
@@ -36,20 +23,16 @@ public class ExecutionLayerServer
     private readonly JwtDecoder JwtDecoder;
     private readonly ILogger<ExecutionLayerServer> Logger;
     private readonly ChainState ChainState;
-    private readonly ContractExecutor Executor;
     private readonly BlockStorage BlockStorage;
     private readonly KmartConfiguration Configuration;
     private readonly FakeEthereumBlockSource FakeEthereumBlockSource;
     private readonly PayloadManager PayloadManager;
 
-    private readonly JsonSerializerOptions DefaultSerializerOptions = new JsonSerializerOptions()
-    {
-    };
+    private readonly JsonSerializerOptions DefaultSerializerOptions = new();
 
     public ExecutionLayerServer(
         ILogger<ExecutionLayerServer> logger,
         ChainState chainState,
-        ContractExecutor contractExecutor,
         BlockStorage blockStorage,
         KmartConfiguration configuration,
         FakeEthereumBlockSource fakeEthereumBlockSource,
@@ -60,7 +43,6 @@ public class ExecutionLayerServer
         Algorithm = new HMACSHA256Algorithm();
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
-        Executor = contractExecutor ?? throw new ArgumentNullException(nameof(contractExecutor));
         BlockStorage = blockStorage ?? throw new ArgumentNullException(nameof(blockStorage));
         Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         FakeEthereumBlockSource =
@@ -161,7 +143,7 @@ public class ExecutionLayerServer
             case "eth_getBlockByNumber":
             {
                 var heightSpec = parameters[0].GetString() ?? throw new Exception($"Could not obtain height spec");
-                var currentHeight = ChainState.LastBlock.Height;
+                var currentHeight = ChainState.LastBlock?.Height ?? throw new Exception($"No last block");
                 var targetHeight = heightSpec.Equals("latest", StringComparison.InvariantCultureIgnoreCase)
                     ? (int)Math.Max(currentHeight, (double)FakeEthereumBlockSource.LastFakedHeight + 1)
                     : (int)heightSpec.ToQuantity();
@@ -197,7 +179,9 @@ public class ExecutionLayerServer
             }
             case "engine_forkchoiceUpdatedV1":
             {
-                var forkChoice = JsonSerializer.Deserialize<ForkchoiceStateV1>(parameters[0]);
+                var forkChoice = JsonSerializer.Deserialize<ForkchoiceStateV1>(parameters[0]) ??
+                                 throw new Exception($"Failed to deserialize ForkchoiceStateV1");
+                
                 var forkChoiceHead = forkChoice.HeadBlockHash.ToByteArray();
                 var forkChoiceBlock = BlockStorage.GetBlock(forkChoiceHead);
 
@@ -232,7 +216,7 @@ public class ExecutionLayerServer
                 // If fork choice head is behind canonical head
                 else if (ChainState.IsAncestorOfHead(forkChoiceHead))
                 {
-                    Logger.LogInformation($"Fork choice head {forkChoiceBlock.Height}/{forkChoiceHead.ToPrettyString()} is ancestor of canonical head {ChainState.LastBlock.Height}/{ChainState.LastBlockHash.ToPrettyString()}");
+                    Logger.LogInformation($"Fork choice head {forkChoiceBlock?.Height}/{forkChoiceHead.ToPrettyString()} is ancestor of canonical head {ChainState.LastBlock?.Height}/{ChainState.LastBlockHash.ToPrettyString()}");
                     responseValue = new
                     {
                         payloadStatus = new PayloadStatusV1("VALID", forkChoiceHead.ToPrettyString(true), null),
@@ -244,7 +228,7 @@ public class ExecutionLayerServer
                     Block? commonAncestorBlock =
                         forkChoiceBlock is not null ? ChainState.GetCommonAncestor(forkChoiceBlock) : null;
                     // If fork choice head is ahead of canonical head, with requisite blocks in db
-                    if (commonAncestorBlock is not null)
+                    if (forkChoiceBlock is not null && commonAncestorBlock is not null)
                     {
                         if (!commonAncestorBlock.Hash.SequenceEqual(ChainState.LastBlockHash))
                         {
@@ -307,7 +291,7 @@ public class ExecutionLayerServer
             break;
             case "engine_getPayloadV1":
             {
-                var payloadId = (long) BitConverter.ToUInt64(parameters[0].GetString().ToByteArray());
+                var payloadId = (long) BitConverter.ToUInt64(parameters[0].GetString()?.ToByteArray() ?? throw new Exception($"Failed to decode payload ID"));
                 var payload = PayloadManager.GetPayload(payloadId);
 
                 if (payload is null)
@@ -325,7 +309,14 @@ public class ExecutionLayerServer
             break;
             case "engine_newPayloadV1":
             {
-                var payloadWrapped = JsonSerializer.Deserialize<ExecutionPayloadWrapper>(parameters[0]);
+                var payloadWrapped = JsonSerializer.Deserialize<ExecutionPayloadWrapper>(parameters[0]) ??
+                                     throw new Exception("Failed to deserialize execution payload");
+
+                if (ChainState.LastBlock is null)
+                {
+                    throw new Exception($"Last block is null");
+                }
+                
                 var payload = payloadWrapped.Payload;
                 var localBlock = PayloadManager.CreateBlockFromPayload(payload);
                 BlockStorage.StoreBlock(localBlock);
@@ -508,6 +499,7 @@ public class ExecutionLayerServer
                 TransactionsRoot = prevHeader.TransactionsRoot,
             };
         }
+        
         ChainState.SetGenesisState(deserializedState);
         ChainState.Snapshot.LastStateRoot = Merkleizer.HashTreeRoot(beaconStateType, deserializedState);
         Logger.LogInformation($"Loaded genesis state with root hash {ChainState.LastStateRoot.ToPrettyString()}");
@@ -552,6 +544,16 @@ public class ExecutionLayerServer
             {
                 lock (ChainState)
                 {
+                    if (ChainState.GenesisState is null)
+                    {
+                        throw new Exception("No genesis state");
+                    }
+
+                    if (ChainState.LastBlock is null)
+                    {
+                        throw new Exception("No last block");
+                    }
+                        
                     var genesisHash = ChainState.GenesisState.LastExecutionPayloadHeader.BlockHash;
                     var currentHead = ChainState.LastBlockHash;
                     var head = hash;

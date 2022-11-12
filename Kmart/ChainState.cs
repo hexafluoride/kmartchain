@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using SszSharp;
 
 namespace Kmart
@@ -24,12 +21,12 @@ namespace Kmart
 
         public byte[] SaveSnapshot() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(this);
 
-        public static ChainStateSnapshot LoadSnapshot(byte[] bytes) => System.Text.Json.JsonSerializer.Deserialize<ChainStateSnapshot>(bytes);
+        public static ChainStateSnapshot? LoadSnapshot(byte[] bytes) => System.Text.Json.JsonSerializer.Deserialize<ChainStateSnapshot>(bytes);
     }
     
     public class ChainState
     {
-        public ChainStateSnapshot Snapshot { get; set; }
+        public ChainStateSnapshot Snapshot { get; set; } = new();
 
         public Dictionary<byte[], ulong> Balances => Snapshot.Balances;
         public Dictionary<byte[], Contract> Contracts => Snapshot.Contracts;
@@ -42,7 +39,7 @@ namespace Kmart
         public object LockObject2 = new object();
         public BeaconState? GenesisState { get; set; }
         public RollbackContext CurrentRollbackContext { get; private set; } = new();
-        public Transaction CurrentTransaction { get; private set; }
+        public Transaction CurrentTransaction { get; private set; } = new();
 
         private readonly ContractExecutor ContractExecutor;
         private readonly BlobManager BlobManager;
@@ -59,6 +56,9 @@ namespace Kmart
 
         public bool? LoadSnapshot(byte[] blockHash)
         {
+            if (GenesisState is null)
+                throw new Exception($"Cannot load snapshot while genesis state is null");
+            
             if (blockHash.SequenceEqual(GenesisState.LastExecutionPayloadHeader.BlockHash))
             {
                 Logger.LogInformation($"Switched to genesis state");
@@ -77,11 +77,11 @@ namespace Kmart
                 }
 
                 var lastSnapshot = Snapshot;
-                var snapshot = ChainStateSnapshot.LoadSnapshot(File.ReadAllBytes(targetSnapshotPath));
-                Snapshot = snapshot;
+                var snapshot = ChainStateSnapshot.LoadSnapshot(File.ReadAllBytes(targetSnapshotPath)) ?? throw new Exception($"Failed to load snapshot from {targetSnapshotPath}");
                 
+                Snapshot = snapshot;
                 Logger.LogInformation(
-                    $"Switched from state {lastSnapshot.LastBlock.Height}/{lastSnapshot.LastBlockHash.ToPrettyString()} to {snapshot.LastBlock.Height}/{snapshot.LastBlockHash.ToPrettyString()}");
+                    $"Switched from state {lastSnapshot.LastBlock?.Height}/{lastSnapshot.LastBlockHash.ToPrettyString()} to {snapshot.LastBlock?.Height}/{snapshot.LastBlockHash.ToPrettyString()}");
                 return true;
             }
         }
@@ -139,7 +139,7 @@ namespace Kmart
             lock (LockObject2)
             {
                 var currentHead = Snapshot.LastBlockHash.ToArray();
-                (var isValid, var rollback) = ProcessBlock(block);
+                (var isValid, _) = ProcessBlock(block);
                 LoadSnapshot(currentHead);
                 return isValid;
             }
@@ -152,8 +152,12 @@ namespace Kmart
                 var blockRollback = new RollbackContext();
                 try
                 {
-                    block.CalculateHash();
+                    if (LastBlock is null)
+                    {
+                        throw new Exception($"Last block is null, cannot process new blocks");
+                    }
 
+                    block.CalculateHash();
                     if (!block.Parent.SequenceEqual(LastBlockHash))
                     {
                         throw new Exception(
@@ -196,7 +200,7 @@ namespace Kmart
                 {
                     blockRollback.ExecuteRollback();
                     Logger.LogError(e,
-                        $"Failed to process block {block.Height}/{block.Hash.ToPrettyString()}, current block {LastBlock.Height}/{LastBlockHash.ToPrettyString()}");
+                        $"Failed to process block {block.Height}/{block.Hash.ToPrettyString()}, current block {LastBlock?.Height}/{LastBlockHash.ToPrettyString()}");
                     return (false, null);
                 }
 
