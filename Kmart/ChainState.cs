@@ -27,7 +27,6 @@ namespace Kmart
     public class ChainState
     {
         public ChainStateSnapshot Snapshot { get; set; } = new();
-
         public Dictionary<byte[], ulong> Balances => Snapshot.Balances;
         public Dictionary<byte[], Contract> Contracts => Snapshot.Contracts;
         public byte[] LastBlockHash => Snapshot.LastBlockHash;
@@ -38,8 +37,6 @@ namespace Kmart
         public object LockObject = new object();
         public object LockObject2 = new object();
         public BeaconState? GenesisState { get; set; }
-        public RollbackContext CurrentRollbackContext { get; private set; } = new();
-        public Transaction CurrentTransaction { get; private set; } = new();
 
         private readonly ContractExecutor ContractExecutor;
         private readonly BlobManager BlobManager;
@@ -171,8 +168,7 @@ namespace Kmart
 
                     for (int i = 0; i < block.Transactions.Length; i++)
                     {
-                        ProcessTransaction(block.Transactions[i], i);
-                        blockRollback.AddRollbackActions(CurrentRollbackContext);
+                        blockRollback.AddRollbackActions(ProcessTransaction(block.Transactions[i], i));
                     }
 
                     Logger.LogInformation(
@@ -198,9 +194,19 @@ namespace Kmart
                 }
                 catch (Exception e)
                 {
-                    blockRollback.ExecuteRollback();
                     Logger.LogError(e,
                         $"Failed to process block {block.Height}/{block.Hash.ToPrettyString()}, current block {LastBlock?.Height}/{LastBlockHash.ToPrettyString()}");
+
+                    try
+                    {
+                        blockRollback.ExecuteRollback();
+                    }
+                    catch (Exception e2)
+                    {
+                        Logger.LogError(e2,
+                            $"Failed to execute rollback while processing block {block.Height}/{block.Hash.ToPrettyString()}");
+                    }
+                    
                     return (false, null);
                 }
 
@@ -208,183 +214,204 @@ namespace Kmart
             }
         }
 
-        void FailTransactionWithPunishment()
+        void FailTransactionWithPunishment(RollbackContext targetContext, Transaction transaction)
         {
-            CurrentRollbackContext.ExecuteRollback();
+            targetContext.ExecuteRollback();
 
             // TODO: Calculate this based off of transaction gas limit or something
             var punishment = GlobalConstants.CoinbaseReward / 100u;
 
-            if (!Balances.ContainsKey(CurrentTransaction.Address))
+            if (!Balances.ContainsKey(transaction.Address))
             {
                 throw new Exception("Sender does not exist");
             }
 
-            if (Balances[CurrentTransaction.Address] < punishment)
+            if (Balances[transaction.Address] < punishment)
             {
                 throw new Exception(
-                    $"{CurrentTransaction.Address.ToPrettyString()} cannot pay fees for failed tx {CurrentTransaction.Hash.ToPrettyString()}");
+                    $"{transaction.Address.ToPrettyString()} cannot pay fees for failed tx {transaction.Hash.ToPrettyString()}");
             }
 
-            Balances[CurrentTransaction.Address] -= punishment;
-            CurrentRollbackContext.AddRollbackAction(() => { Balances[CurrentTransaction.Address] += punishment; });
+            Balances[transaction.Address] -= punishment;
+            targetContext.AddRollbackAction(() => { Balances[transaction.Address] += punishment; });
         }
         
-        void ProcessTransaction(Transaction transaction, int index)
+        RollbackContext ProcessTransaction(Transaction transaction, int index)
         {
-            transaction.CalculateHash();
-            CurrentTransaction = transaction;
-
-            var signed = false;
-
+            var rollbackContext = new RollbackContext();
             try
             {
-                //signed = Ed25519.Verify(transaction.Signature, transaction.Hash, transaction.Address);
-                signed = SignatureTools.VerifySignature(transaction.Hash, transaction.Signature);
+                transaction.CalculateHash();
+
+                var signed = false;
+                try
+                {
+                    signed = SignatureTools.VerifySignature(transaction.Hash, transaction.Signature);
+                }
+                catch (Exception e)
+                {
+                    Logger.LogError(e, $"Failed to verify tx {transaction.Hash.ToPrettyString()} signature");
+                }
+
+                if (!signed)
+                {
+                    throw new Exception($"Transaction {transaction.Hash.ToPrettyString()} not signed");
+                }
+
+                switch (transaction.Type)
+                {
+                    case TransactionType.Simple:
+                        var payload = SimpleTransactionPayload.FromTransaction(transaction);
+
+                        if (!Balances.ContainsKey(payload.To))
+                        {
+                            Balances[payload.To] = 0;
+                            rollbackContext.AddRollbackAction(() => { Balances.Remove(payload.To); });
+                        }
+
+                        // Non-coinbase payment
+                        if (index != 0)
+                        {
+                            if (!Balances.ContainsKey(payload.From))
+                            {
+                                throw new InvalidOperationException(
+                                    $"Payer address {payload.From.ToPrettyString()} does not exist");
+                            }
+
+                            if (payload.Amount > Balances[payload.From])
+                            {
+                                FailTransactionWithPunishment(rollbackContext, transaction);
+                                break;
+                            }
+
+                            Balances[payload.To] += payload.Amount;
+                            Balances[payload.From] -= payload.Amount;
+
+                            rollbackContext.AddRollbackAction(() =>
+                            {
+                                Balances[payload.To] -= payload.Amount;
+                                Balances[payload.From] += payload.Amount;
+                            });
+                        }
+                        else
+                        {
+                            // Check coinbase eligibility
+                            if (payload.Amount != GlobalConstants.CoinbaseReward)
+                            {
+                                throw new Exception($"Invalid coinbase payment amount {payload.Amount}");
+                            }
+
+                            Balances[payload.To] += payload.Amount;
+                            rollbackContext.AddRollbackAction(() => { Balances[payload.To] -= payload.Amount; });
+                        }
+
+                        break;
+                    case TransactionType.Deploy:
+                    {
+                        var deployPayload = ContractDeployPayload.FromTransaction(transaction);
+                        var contractHash = SHA256.HashData(transaction.Payload).Skip(12).ToArray();
+
+                        if (Contracts.ContainsKey(contractHash))
+                        {
+                            throw new Exception($"Contract {contractHash.ToPrettyString()} already deployed");
+                        }
+
+                        var contract = new Contract()
+                        {
+                            Address = contractHash,
+                            Functions = deployPayload.Functions.ToHashSet(),
+                            BootType = deployPayload.BootType
+                        };
+
+                        Contracts[contractHash] = contract;
+
+                        switch (deployPayload.BootType)
+                        {
+                            case ContractBootType.Multiboot:
+                                File.WriteAllBytes(BlobManager.GetPath(contractHash, BlobManager.ContractInitrdKey),
+                                    deployPayload.Initrd);
+                                File.WriteAllBytes(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey),
+                                    deployPayload.Image);
+                                break;
+                            case ContractBootType.Legacy:
+                                File.WriteAllBytes(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey),
+                                    deployPayload.Image);
+                                break;
+                        }
+
+                        rollbackContext.AddRollbackAction(() =>
+                        {
+                            Contracts.Remove(contractHash);
+                            // File.Delete(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey));
+                            Logger.LogInformation($"Executed rollback of tx {transaction.Hash.ToPrettyString()}");
+                        });
+                        break;
+                    }
+                    case TransactionType.Invoke:
+                    {
+                        var invokePayload = ContractInvokePayload.FromTransaction(transaction);
+                        // pass in calldata
+                        // contract can call to host to read/write state
+                        // contract returns value
+                        var receipt = new ContractInvocationReceipt();
+                        var call = new ContractCall();
+
+                        if (Contracts.ContainsKey(invokePayload.Target))
+                        {
+                            call.Contract = invokePayload.Target;
+                        }
+                        else
+                        {
+                            FailTransactionWithPunishment(rollbackContext, transaction);
+                            break;
+                        }
+
+                        call.CallData = invokePayload.CallData;
+                        call.Function = invokePayload.Function;
+                        receipt.ReturnValue = invokePayload.ReturnValue;
+                        receipt.ExecutionTrace = invokePayload.ExecutionTrace;
+                        receipt.Transaction = transaction;
+                        receipt.StateLog = invokePayload.StateLog;
+                        receipt.InstructionCount = invokePayload.InstructionCount;
+                        call.Caller = call.Source = transaction.Address;
+                        receipt.Call = call;
+
+                        var callResult = ContractExecutor.Execute(receipt.Call, transaction, this, receipt);
+
+                        if (callResult?.RollbackContext is not null)
+                            rollbackContext.AddRollbackActions(callResult.RollbackContext);
+
+                        if (callResult is null || !callResult.Verified)
+                        {
+                            throw new Exception("Contract call failed to verify");
+                        }
+
+                        break;
+                    }
+                    default:
+                    {
+                        FailTransactionWithPunishment(rollbackContext, transaction);
+                        break;
+                    }
+                }
+
+                return rollbackContext;
             }
             catch (Exception e)
             {
-                Console.WriteLine($"failed to verify tx {transaction.Hash.ToPrettyString()} signature: {e}");
-            }
+                Logger.LogError(e, $"Failed to process transaction {transaction.Hash.ToPrettyString()}");
 
-            if (!signed)
-            {
-                throw new Exception($"tx {transaction.Hash.ToPrettyString()} not signed");
-            }
-
-            CurrentRollbackContext.RollbackActions.Clear();
-            
-            switch (transaction.Type)
-            {
-                case TransactionType.Simple:
-                    var payload = SimpleTransactionPayload.FromTransaction(transaction);
-
-                    if (!Balances.ContainsKey(payload.To))
-                    {
-                        Balances[payload.To] = 0;
-                        CurrentRollbackContext.AddRollbackAction(() => { Balances.Remove(payload.To); });
-                    }
-                    
-                    // Non-coinbase payment
-                    if (index != 0)
-                    {
-                        if (!Balances.ContainsKey(payload.From))
-                        {
-                            CurrentRollbackContext.ExecuteRollback();
-                            throw new InvalidOperationException(
-                                $"Payer address {payload.From.ToPrettyString()} does not exist");
-                        }
-
-                        if (payload.Amount > Balances[payload.From])
-                        {
-                            FailTransactionWithPunishment();
-                            break;
-                        }
-
-                        Balances[payload.To] += payload.Amount;
-                        Balances[payload.From] -= payload.Amount;
-                        
-                        CurrentRollbackContext.AddRollbackAction(() =>
-                        {
-                            Balances[payload.To] -= payload.Amount;
-                            Balances[payload.From] += payload.Amount;
-                        });
-                    }
-                    else
-                    {
-                        // Check coinbase eligibility
-                        if (payload.Amount != GlobalConstants.CoinbaseReward)
-                        {
-                            throw new Exception($"Invalid coinbase payment amount {payload.Amount}");
-                        }
-
-                        Balances[payload.To] += payload.Amount;
-                        CurrentRollbackContext.AddRollbackAction(() => { Balances[payload.To] -= payload.Amount; });
-                    }
-                    break;
-                case TransactionType.Deploy:
+                try
                 {
-                    var deployPayload = ContractDeployPayload.FromTransaction(transaction);
-                    var contractHash = SHA256.HashData(transaction.Payload).Skip(12).ToArray();
-
-                    if (Contracts.ContainsKey(contractHash))
-                    {
-                        throw new Exception($"Contract {contractHash.ToPrettyString()} already deployed");
-                    }
-
-                    var contract = new Contract()
-                    {
-                        Address = contractHash,
-                        Functions = deployPayload.Functions.ToHashSet(),
-                        BootType = deployPayload.BootType
-                    };
-
-                    Contracts[contractHash] = contract;
-
-                    switch (deployPayload.BootType)
-                    {
-                        case ContractBootType.Multiboot:
-                            File.WriteAllBytes(BlobManager.GetPath(contractHash, BlobManager.ContractInitrdKey), deployPayload.Initrd);
-                            File.WriteAllBytes(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey), deployPayload.Image);
-                            break;
-                        case ContractBootType.Legacy:
-                            File.WriteAllBytes(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey), deployPayload.Image);
-                            break;
-                    }
-                    
-                    CurrentRollbackContext.AddRollbackAction(() =>
-                    {
-                        Contracts.Remove(contractHash);
-                        // File.Delete(BlobManager.GetPath(contractHash, BlobManager.ContractImageKey));
-                        Logger.LogInformation($"Executed rollback of tx {transaction.Hash.ToPrettyString()}");
-                    });
-                    break;
+                    rollbackContext.ExecuteRollback();
                 }
-                case TransactionType.Invoke:
+                catch (Exception e2)
                 {
-                    var invokePayload = ContractInvokePayload.FromTransaction(transaction);
-                    // pass in calldata
-                    // contract can call to host to read/write state
-                    // contract returns value
-                    var receipt = new ContractInvocationReceipt();
-                    var call = new ContractCall();
-
-                    if (Contracts.ContainsKey(invokePayload.Target))
-                    {
-                        call.Contract = invokePayload.Target;
-                    }
-                    else
-                    {
-                        FailTransactionWithPunishment();
-                        break;
-                    }
-
-                    call.CallData = invokePayload.CallData;
-                    call.Function = invokePayload.Function;
-                    receipt.ReturnValue = invokePayload.ReturnValue;
-                    receipt.ExecutionTrace = invokePayload.ExecutionTrace;
-                    receipt.Transaction = transaction;
-                    receipt.StateLog = invokePayload.StateLog;
-                    receipt.InstructionCount = invokePayload.InstructionCount;
-                    call.Caller = call.Source = transaction.Address;
-                    receipt.Call = call;
-                    
-                    var callResult = ContractExecutor.Execute(receipt.Call, transaction, this, receipt);
-                    
-                    if (callResult?.RollbackContext is not null)
-                        CurrentRollbackContext.AddRollbackActions(callResult.RollbackContext);
-                    
-                    if (callResult is null || !callResult.Verified)
-                    {
-                        throw new Exception("Contract call failed to verify");
-                    }
-                    break;
+                    Logger.LogError(e2,
+                        $"Failed to process rollback for transaction {transaction.Hash.ToPrettyString()} after previous error");
                 }
-                default:
-                {
-                    FailTransactionWithPunishment();
-                    break;
-                }
+                
+                throw;
             }
         }
     }
