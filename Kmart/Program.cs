@@ -1,11 +1,9 @@
 ﻿using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Autofac;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Org.BouncyCastle.Crypto.Parameters;
 using SszSharp;
 
 namespace Kmart
@@ -40,10 +38,19 @@ namespace Kmart
                 BlobManager.DataDirectory = Environment.CurrentDirectory = dataDir;
                 var blobManager = container.Resolve<BlobManager>();
                 blobManager.InitializeDirectories();
-                var server = container.Resolve<ExecutionLayerServer>();
-
-                server.Start();
-                await server.Serve();
+                
+                // Register chain implementation types as singletons in a lifetime
+                using (var chainScope = container.BeginLifetimeScope(scopeBuilder =>
+                   {
+                       scopeBuilder.RegisterType<ChainState>().As<IChainState>().AsSelf().SingleInstance();
+                       scopeBuilder.RegisterType<PayloadManager>().As<IPayloadManager>().AsSelf().SingleInstance();
+                       scopeBuilder.RegisterType<BlockStorage>().As<IBlockStorage>().AsSelf().SingleInstance();
+                   }))
+                {
+                    var server = chainScope.Resolve<ExecutionLayerServer>();
+                    server.Start();
+                    await server.Serve();   
+                }
             }
         }
     }

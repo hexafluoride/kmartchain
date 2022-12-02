@@ -9,9 +9,8 @@ namespace Kmart;
 
 public class FakeEthereumBlockSource
 {
-    private readonly IBlockStorage BlockStorage;
     private ILogger<FakeEthereumBlockSource> Logger;
-    private IChainState? ChainState; // TODO: Reduce dependence on ChainState for this
+    private IChainState ChainState; // We only use this for the genesis state
     
     public int LastFakedHeight = 16;
     public ulong MergeHeight = 19;
@@ -21,15 +20,10 @@ public class FakeEthereumBlockSource
     private DateTime anchoringTime = DateTime.MinValue;
     private int anchoringHeight = -1;
 
-    public FakeEthereumBlockSource(BlockStorage blockStorage, ILogger<FakeEthereumBlockSource> logger)
-    {
-        BlockStorage = blockStorage ?? throw new ArgumentNullException(nameof(blockStorage));
-        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
-    public void UseChainState(IChainState chainState)
+    public FakeEthereumBlockSource(IChainState chainState, ILogger<FakeEthereumBlockSource> logger)
     {
         ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public FakeEthereumBlock? GetBlock(byte[] hash)
@@ -40,8 +34,8 @@ public class FakeEthereumBlockSource
 
         return null;
     }
-    
-    public FakeEthereumBlock GetBlock(int newHeight)
+
+    public FakeEthereumBlock GetBlock(int newHeight, IBlock? realBlock)
     {
         var localRng = new Random(newHeight);
         var newHash = new byte[32];
@@ -58,12 +52,9 @@ public class FakeEthereumBlockSource
             lastRng.NextBytes(lastHash);
 
         var time = DateTime.UtcNow;
-        var possibleRealMatch = ChainState?.Ancestors?.FirstOrDefault(ancestorHash =>
-            BlockStorage.GetBlock(ancestorHash)?.Height == (ulong) newHeight);
-        if (possibleRealMatch is not null)
+        if (realBlock is not null)
         {
-            var realBlock = BlockStorage.GetBlock(possibleRealMatch) ?? throw new Exception($"Could not find block {possibleRealMatch.ToPrettyString()}");
-            newHash = realBlock.Hash;
+            newHashStr = realBlock.Hash.ToPrettyString(true);
             lastHash = realBlock.Parent;
             time = DateTime.UnixEpoch + TimeSpan.FromSeconds(realBlock.Timestamp);
         }

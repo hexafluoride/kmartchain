@@ -9,17 +9,18 @@ using SszSharp;
 
 namespace Kmart;
 
-public class PayloadManager
+public class PayloadManager : IPayloadManager
 {
-    private ChainState ChainState; // TODO: Manage ChainState lifetimes properly (also in FakeEthereumBlockSource)
+    private ChainState ChainState;
     private readonly ContractExecutor Executor;
     private readonly ILogger<PayloadManager> Logger;
     
     public int InjectedTx;
     public Dictionary<long, ExecutionPayload> Payloads = new();
 
-    public PayloadManager(ContractExecutor executor, ILogger<PayloadManager> logger)
+    public PayloadManager(ChainState chainState, ContractExecutor executor, ILogger<PayloadManager> logger)
     {
+        ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
         Executor = executor ?? throw new ArgumentNullException(nameof(executor));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         
@@ -29,12 +30,9 @@ public class PayloadManager
         signerAddress = signerAddress.Skip(signerAddress.Length - 20).ToArray();
     }
 
-    public void UseChainState(IChainState genericChainState)
+    public void Reset()
     {
-        if (!(genericChainState is ChainState chainState))
-            throw new Exception($"Type mismatch, expected {typeof(ChainState)}, got {genericChainState.GetType()}");
-        
-        ChainState = chainState;
+        InjectedTx = 0;
     }
 
     public ExecutionPayload? GetPayload(long payloadId)
@@ -45,7 +43,7 @@ public class PayloadManager
         return null;
     }
     
-    public Block CreateBlockFromPayload(ExecutionPayload payload)
+    public IBlock CreateBlockFromPayload(ExecutionPayload payload)
     {
         lock (payload)
         {

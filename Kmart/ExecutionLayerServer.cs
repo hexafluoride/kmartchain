@@ -26,7 +26,7 @@ public class ExecutionLayerServer
     private readonly IBlockStorage BlockStorage;
     private readonly KmartConfiguration Configuration;
     private readonly FakeEthereumBlockSource FakeEthereumBlockSource;
-    private readonly PayloadManager PayloadManager;
+    private readonly IPayloadManager PayloadManager;
 
     private readonly JsonSerializerOptions DefaultSerializerOptions = new();
 
@@ -36,7 +36,7 @@ public class ExecutionLayerServer
         IBlockStorage blockStorage,
         KmartConfiguration configuration,
         FakeEthereumBlockSource fakeEthereumBlockSource,
-        PayloadManager payloadManager
+        IPayloadManager payloadManager
         )
     {
         HttpListener = new HttpListener();
@@ -48,10 +48,7 @@ public class ExecutionLayerServer
         FakeEthereumBlockSource =
             fakeEthereumBlockSource ?? throw new ArgumentNullException(nameof(fakeEthereumBlockSource));
         PayloadManager = payloadManager ?? throw new ArgumentNullException(nameof(payloadManager));
-        
-        FakeEthereumBlockSource.UseChainState(chainState); // HACK
-        PayloadManager.UseChainState(chainState);
-        
+
         IJsonSerializer serializer = new JsonNetSerializer();
         IDateTimeProvider provider = new UtcDateTimeProvider();
         IJwtValidator validator = new JwtValidator(serializer, provider);
@@ -149,7 +146,12 @@ public class ExecutionLayerServer
                     ? (int)Math.Max(currentHeight, (double)FakeEthereumBlockSource.LastFakedHeight + 1)
                     : (int)heightSpec.ToQuantity();
 
-                var resultBlock = FakeEthereumBlockSource.GetBlock(targetHeight);
+                // Check whether there is a real block corresponding to the requested height
+                var realBlockHash = ChainState?.Ancestors?.FirstOrDefault(ancestorHash =>
+                    BlockStorage.GetBlock(ancestorHash)?.Height == (ulong) targetHeight);
+                var realBlock = realBlockHash is not null ? BlockStorage.GetBlock(realBlockHash) : null;
+                
+                var resultBlock = FakeEthereumBlockSource.GetBlock(targetHeight, realBlock);
                 if (resultBlock.Height == (int)(FakeEthereumBlockSource.MergeHeight + 1))
                 {
                     newGenesisBlock = resultBlock;
@@ -465,7 +467,7 @@ public class ExecutionLayerServer
     void ResetFromGenesis()
     {
         // TODO: Implement actual mempool
-        PayloadManager.InjectedTx = 0;
+        PayloadManager.Reset();
         
         var beaconStateType = SszContainer.GetContainer<BeaconState>();
         var genesisPath = Configuration.GenesisStatePath;
