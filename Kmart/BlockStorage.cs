@@ -7,10 +7,17 @@ using SszSharp;
 
 namespace Kmart;
 
-public class BlockStorage
+public interface IBlockStorage
 {
-    public Dictionary<ulong, List<Block>> BlocksByHeight = new();
-    public Dictionary<byte[], Block> BlocksByHash = new(new ByteArrayComparer());
+    public IBlock? GetBlock(ulong height);
+    public IBlock? GetBlock(byte[] hash);
+    public void StoreBlock(IBlock block);
+}
+
+public class BlockStorage : IBlockStorage
+{
+    public Dictionary<ulong, List<IBlock>> BlocksByHeight = new();
+    public Dictionary<byte[], IBlock> BlocksByHash = new(new ByteArrayComparer());
 
     private readonly BlobManager BlobManager;
     private readonly ILogger<BlockStorage> Logger;
@@ -21,7 +28,7 @@ public class BlockStorage
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
     
-    public Block? GetBlock(ulong height)
+    public IBlock? GetBlock(ulong height)
     {
         if (!BlocksByHeight.ContainsKey(height))
             return null;
@@ -32,7 +39,7 @@ public class BlockStorage
         return BlocksByHeight[height][0];
     }
 
-    public Block? GetBlock(byte[] hash)
+    public IBlock? GetBlock(byte[] hash)
     {
         if (!BlocksByHash.ContainsKey(hash))
         {
@@ -66,7 +73,7 @@ public class BlockStorage
         return BlocksByHash[hash];
     }
 
-    public void StoreBlock(Block block)
+    public void StoreBlock(IBlock block)
     {
         lock (BlocksByHeight)
         lock (BlocksByHash)

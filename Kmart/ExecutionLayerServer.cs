@@ -228,7 +228,7 @@ public class ExecutionLayerServer
                 }
                 else
                 {
-                    Block? commonAncestorBlock =
+                    IBlock? commonAncestorBlock =
                         forkChoiceBlock is not null ? ChainState.GetCommonAncestor(forkChoiceBlock) : null;
 
                     // If direct snapshot exists
@@ -524,13 +524,13 @@ public class ExecutionLayerServer
         Logger.LogInformation($"Loaded genesis state with root hash {ChainState.LastStateRoot.ToPrettyString()}");
     }
 
-    List<Block> GetFastForwardList(Block sourceBlock, Block targetBlock)
+    List<IBlock> GetFastForwardList(IBlock sourceBlock, IBlock targetBlock)
     {
         // Start from target block, walk back to source block, return path of blocks
-        var ret = new List<Block>();
+        var ret = new List<IBlock>();
         ret.Add(targetBlock);
 
-        Block? currentBlock = targetBlock;
+        IBlock? currentBlock = targetBlock;
         while (currentBlock is not null && !currentBlock.Hash.SequenceEqual(sourceBlock.Hash))
         {
             currentBlock = BlockStorage.GetBlock(currentBlock.Parent);
@@ -576,8 +576,8 @@ public class ExecutionLayerServer
                     var genesisHash = ChainState.GenesisState.LastExecutionPayloadHeader.BlockHash;
                     var currentHead = ChainState.LastBlockHash;
                     var head = hash;
-                    var blockSequence = new List<Block>();
-                    Block? headBlock;
+                    var blockSequence = new List<IBlock>();
+                    IBlock? headBlock;
 
                     Logger.LogInformation($"Syncing to head {head.ToPrettyString()}");
 

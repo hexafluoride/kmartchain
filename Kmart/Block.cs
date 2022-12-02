@@ -6,7 +6,7 @@ using SszSharp;
 namespace Kmart
 {
     
-    public class Block
+    public class Block : IBlock
     {
         public static SszContainer<Block> SszType = SszContainer.GetContainer<Block>();
 

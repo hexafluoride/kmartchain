@@ -4,6 +4,42 @@ using System.Text.Json.Serialization;
 
 namespace Kmart
 {
+    public class StateMap
+    {
+        public readonly ReadOnlyMemory<byte> Backing;
+        private readonly int Entries;
+        private const int WordSize = 32;
+
+        private readonly Dictionary<byte[], byte[]> Cache = new(new ByteArrayComparer());
+
+        public StateMap(ReadOnlyMemory<byte> backing)
+        {
+            Backing = backing;
+            Entries = backing.Length / (WordSize * 2);
+        }
+
+        public byte[]? ReadBytes(byte[] key) => Read(key)?.ToArray();
+        public ReadOnlyMemory<byte>? Read(byte[] key)
+        {
+            if (Cache.ContainsKey(key))
+                return Cache[key];
+
+            var index = FindIndex(key);
+            if (index == -1)
+            {
+                return null;
+            }
+            
+            return Backing.Slice(WordSize * (Entries + index), WordSize);
+        }
+
+        int FindIndex(byte[] key)
+        {
+            int slice = 0;
+            return -1;
+        }
+    }
+    
     public class Contract
     {
         public byte[] Address { get; set; } = new byte[20];

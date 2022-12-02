@@ -23,8 +23,8 @@ namespace Kmart
 
         public static ChainStateSnapshot? LoadSnapshot(Stream stream) => System.Text.Json.JsonSerializer.Deserialize<ChainStateSnapshot>(stream);
     }
-    
-    public class ChainState
+
+    public class ChainState : IChainState
     {
         public ChainStateSnapshot Snapshot { get; set; } = new();
         public Dictionary<byte[], ulong> Balances => Snapshot.Balances;
@@ -90,9 +90,9 @@ namespace Kmart
             }
         }
 
-        public Block? GetCommonAncestor(Block block)
+        public IBlock? GetCommonAncestor(IBlock block)
         {
-            Block? nextBlock = block;
+            IBlock? nextBlock = block;
             while (nextBlock is not null)
             {
                 if (IsAncestorOfHead(nextBlock.Hash))
@@ -103,6 +103,7 @@ namespace Kmart
 
             return null;
         }
+        
         public bool IsAncestorOfHead(byte[] hash) => Ancestors.Any(ancestorHash => hash.SequenceEqual(ancestorHash));
 
         public void SetGenesisState(BeaconState state)
@@ -138,7 +139,7 @@ namespace Kmart
             }
         }
 
-        public bool ValidateBlock(Block block)
+        public bool ValidateBlock(IBlock block)
         {
             lock (LockObject2)
             {
@@ -149,8 +150,13 @@ namespace Kmart
             }
         }
         
-        public (bool, RollbackContext?) ProcessBlock(Block block)
+        public (bool, RollbackContext?) ProcessBlock(IBlock genericBlock)
         {
+            if (!(genericBlock is Block block))
+            {
+                throw new Exception($"Type mismatch, expected {typeof(Block)}, got {genericBlock.GetType()}");
+            }
+            
             lock (LockObject)
             {
                 var blockRollback = new RollbackContext();

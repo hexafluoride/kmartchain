@@ -99,7 +99,7 @@ public class FakeEthereumBlockSource
         return newBlock;
     }
 
-    public FakeEthereumBlock CreateFromRealBlock(Block block)
+    public FakeEthereumBlock CreateFromRealBlock(IBlock block)
     {
         var hashString = block.Hash.ToPrettyString();
         fakeBlocks[hashString] = new FakeEthereumBlock()
