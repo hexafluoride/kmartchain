@@ -22,8 +22,8 @@ public class ExecutionLayerServer
     private readonly IJwtAlgorithm Algorithm;
     private readonly JwtDecoder JwtDecoder;
     private readonly ILogger<ExecutionLayerServer> Logger;
-    private readonly ChainState ChainState;
-    private readonly BlockStorage BlockStorage;
+    private readonly IChainState ChainState;
+    private readonly IBlockStorage BlockStorage;
     private readonly KmartConfiguration Configuration;
     private readonly FakeEthereumBlockSource FakeEthereumBlockSource;
     private readonly PayloadManager PayloadManager;
@@ -32,8 +32,8 @@ public class ExecutionLayerServer
 
     public ExecutionLayerServer(
         ILogger<ExecutionLayerServer> logger,
-        ChainState chainState,
-        BlockStorage blockStorage,
+        IChainState chainState,
+        IBlockStorage blockStorage,
         KmartConfiguration configuration,
         FakeEthereumBlockSource fakeEthereumBlockSource,
         PayloadManager payloadManager
@@ -498,7 +498,7 @@ public class ExecutionLayerServer
             beaconStateType.Deserialize(File.ReadAllBytes(genesisPath));
         if (newGenesisBlock is not null)
         {
-            Logger.LogInformation($"Injecting fake genesis block header into state with root hash {ChainState.LastStateRoot.ToPrettyString()}");
+            Logger.LogInformation($"Injecting fake genesis block header into state");
             var prevHeader = deserializedState.LastExecutionPayloadHeader;
             deserializedState.LastExecutionPayloadHeader = new ExecutionPayloadHeader()
             {
@@ -520,8 +520,8 @@ public class ExecutionLayerServer
         }
         
         ChainState.SetGenesisState(deserializedState);
-        ChainState.Snapshot.LastStateRoot = Merkleizer.HashTreeRoot(beaconStateType, deserializedState);
-        Logger.LogInformation($"Loaded genesis state with root hash {ChainState.LastStateRoot.ToPrettyString()}");
+        var lastStateRoot = Merkleizer.HashTreeRoot(beaconStateType, deserializedState);
+        Logger.LogInformation($"Loaded genesis state with root hash {lastStateRoot.ToPrettyString()}");
     }
 
     List<IBlock> GetFastForwardList(IBlock sourceBlock, IBlock targetBlock)

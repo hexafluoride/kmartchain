@@ -73,8 +73,11 @@ public class BlockStorage : IBlockStorage
         return BlocksByHash[hash];
     }
 
-    public void StoreBlock(IBlock block)
+    public void StoreBlock(IBlock genericBlock)
     {
+        if (!(genericBlock is Block block))
+            throw new Exception($"Type mismatch, expected {typeof(Block)}, got {genericBlock.GetType()}");
+        
         lock (BlocksByHeight)
         lock (BlocksByHash)
         {
@@ -88,7 +91,7 @@ public class BlockStorage : IBlockStorage
             BlocksByHash[block.Hash] = block;
             
             Logger.LogInformation($"Stored block {block.Height}/{block.Hash.ToPrettyString()}");
-            File.WriteAllBytes(BlobManager.GetPath(block.Hash, BlobManager.BlockKey), SszContainer.Serialize(block));
+            File.WriteAllBytes(BlobManager.GetPath(block.Hash, BlobManager.BlockKey), SszContainer.Serialize<Block>(block));
         }
     }
 }

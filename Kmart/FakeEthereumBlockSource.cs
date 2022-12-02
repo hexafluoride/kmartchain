@@ -9,9 +9,9 @@ namespace Kmart;
 
 public class FakeEthereumBlockSource
 {
-    private readonly BlockStorage BlockStorage;
+    private readonly IBlockStorage BlockStorage;
     private ILogger<FakeEthereumBlockSource> Logger;
-    private ChainState? ChainState; // TODO: Reduce dependence on ChainState for this
+    private IChainState? ChainState; // TODO: Reduce dependence on ChainState for this
     
     public int LastFakedHeight = 16;
     public ulong MergeHeight = 19;
@@ -27,7 +27,7 @@ public class FakeEthereumBlockSource
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public void UseChainState(ChainState chainState)
+    public void UseChainState(IChainState chainState)
     {
         ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
     }

@@ -40,8 +40,6 @@ namespace Kmart
                 BlobManager.DataDirectory = Environment.CurrentDirectory = dataDir;
                 var blobManager = container.Resolve<BlobManager>();
                 blobManager.InitializeDirectories();
-                var executor = container.Resolve<ContractExecutor>();
-                var chainState = container.Resolve<ChainState>();
                 var server = container.Resolve<ExecutionLayerServer>();
 
                 server.Start();

@@ -29,8 +29,11 @@ public class PayloadManager
         signerAddress = signerAddress.Skip(signerAddress.Length - 20).ToArray();
     }
 
-    public void UseChainState(ChainState chainState)
+    public void UseChainState(IChainState genericChainState)
     {
+        if (!(genericChainState is ChainState chainState))
+            throw new Exception($"Type mismatch, expected {typeof(ChainState)}, got {genericChainState.GetType()}");
+        
         ChainState = chainState;
     }
 

@@ -30,7 +30,7 @@ namespace Kmart
         public Dictionary<byte[], ulong> Balances => Snapshot.Balances;
         public Dictionary<byte[], Contract> Contracts => Snapshot.Contracts;
         public byte[] LastBlockHash => Snapshot.LastBlockHash;
-        public Block? LastBlock => Snapshot.LastBlock;
+        public IBlock? LastBlock => Snapshot.LastBlock;
         public byte[] LastStateRoot => Snapshot.LastStateRoot;
         public List<byte[]> Ancestors => Snapshot.Ancestors;
 
@@ -187,7 +187,7 @@ namespace Kmart
                     Logger.LogInformation(
                         $"Processed block {block.Hash.ToPrettyString()}: state advanced from height {LastBlock.Height} to {block.Height}");
 
-                    var prevLastBlock = LastBlock;
+                    Block? prevLastBlock = LastBlock as Block;
                     var prevLastBlockHash = LastBlockHash;
 
                     blockRollback.AddRollbackAction(() =>
