@@ -3,13 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Kmart;
 
 public class FakeEthereumBlockSource
 {
     private readonly BlockStorage BlockStorage;
-    private ChainState? ChainState; // TODO: Reduce dependence on ChainState for this 
+    private ILogger<FakeEthereumBlockSource> Logger;
+    private ChainState? ChainState; // TODO: Reduce dependence on ChainState for this
     
     public int LastFakedHeight = 16;
     public ulong MergeHeight = 19;
@@ -19,9 +21,10 @@ public class FakeEthereumBlockSource
     private DateTime anchoringTime = DateTime.MinValue;
     private int anchoringHeight = -1;
 
-    public FakeEthereumBlockSource(BlockStorage blockStorage)
+    public FakeEthereumBlockSource(BlockStorage blockStorage, ILogger<FakeEthereumBlockSource> logger)
     {
         BlockStorage = blockStorage ?? throw new ArgumentNullException(nameof(blockStorage));
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public void UseChainState(ChainState chainState)
@@ -69,8 +72,9 @@ public class FakeEthereumBlockSource
             if (anchoringHeight == -1)
             {
                 anchoringHeight = (int) MergeHeight;
+                Logger.LogInformation($"Genesis time is {ChainState?.GenesisState?.GenesisTime.ToString() ?? "(null)"}");
                 anchoringTime = DateTime.UnixEpoch.AddSeconds(
-                    ChainState?.GenesisState?.LastExecutionPayloadHeader?.Timestamp ?? 0);
+                    ChainState?.GenesisState?.GenesisTime ?? 0);
             }
 
             var heightDiff = newHeight - anchoringHeight;

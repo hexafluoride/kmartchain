@@ -46,7 +46,13 @@ namespace Kmart
                 return false;
             }
             // Linq extension method is based on IEnumerable, must evaluate every item.
-            return first.SequenceEqual(second);
+            
+            for (int i = 0; i < first.Length; i++)
+                if (first[i] != second[i])
+                    return false;
+
+            return true;
+            //return first.SequenceEqual(second);
         }
         public override int GetHashCode(byte[] obj)
         {
@@ -58,9 +64,10 @@ namespace Kmart
             }
             // Length occupies at most 2 bits. Might as well store them in the high order byte
             int value = obj.Length;
-            foreach (var b in obj) {
+            for (int i = 0; i < obj.Length; i++)
+            {
                 value <<= 8;
-                value += b;
+                value += obj[i];
             }
             return value;
         }

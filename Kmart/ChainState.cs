@@ -21,7 +21,7 @@ namespace Kmart
 
         public byte[] SaveSnapshot() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(this);
 
-        public static ChainStateSnapshot? LoadSnapshot(byte[] bytes) => System.Text.Json.JsonSerializer.Deserialize<ChainStateSnapshot>(bytes);
+        public static ChainStateSnapshot? LoadSnapshot(Stream stream) => System.Text.Json.JsonSerializer.Deserialize<ChainStateSnapshot>(stream);
     }
     
     public class ChainState
@@ -51,6 +51,12 @@ namespace Kmart
             Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
+        public bool HasSnapshot(byte[] blockHash)
+        {
+            var targetSnapshotPath = BlobManager.GetPath(blockHash, BlobManager.StateSnapshotKey);
+            return File.Exists(targetSnapshotPath);
+        }
+        
         public bool? LoadSnapshot(byte[] blockHash)
         {
             if (GenesisState is null)
@@ -74,7 +80,8 @@ namespace Kmart
                 }
 
                 var lastSnapshot = Snapshot;
-                var snapshot = ChainStateSnapshot.LoadSnapshot(File.ReadAllBytes(targetSnapshotPath)) ?? throw new Exception($"Failed to load snapshot from {targetSnapshotPath}");
+                using var snapshotStream = File.OpenRead(targetSnapshotPath);
+                var snapshot = ChainStateSnapshot.LoadSnapshot(snapshotStream) ?? throw new Exception($"Failed to load snapshot from {targetSnapshotPath}");
                 
                 Snapshot = snapshot;
                 Logger.LogInformation(

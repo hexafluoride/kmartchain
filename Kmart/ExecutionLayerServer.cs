@@ -119,6 +119,7 @@ public class ExecutionLayerServer
 
     async Task ServeRequest(HttpListenerContext context, int id, string method, JsonElement parameters)
     {
+        context.Response.ContentType = "application/json";
         object? responseValue = null;
         int? errorCode = null;
         string? errorMessage = null;
@@ -152,7 +153,9 @@ public class ExecutionLayerServer
                 if (resultBlock.Height == (int)(FakeEthereumBlockSource.MergeHeight + 1))
                 {
                     newGenesisBlock = resultBlock;
-                    ResetFromGenesis();
+                    
+                    if (ChainState.LastBlock?.Height < FakeEthereumBlockSource.MergeHeight)
+                        ResetFromGenesis();
                 }
 
                 responseValue = resultBlock.Encode();
@@ -227,8 +230,25 @@ public class ExecutionLayerServer
                 {
                     Block? commonAncestorBlock =
                         forkChoiceBlock is not null ? ChainState.GetCommonAncestor(forkChoiceBlock) : null;
-                    // If fork choice head is ahead of canonical head, with requisite blocks in db
-                    if (forkChoiceBlock is not null && commonAncestorBlock is not null)
+
+                    // If direct snapshot exists
+                    if (ChainState.HasSnapshot(forkChoiceHead))
+                    {
+                        var loadResult = ChainState.LoadSnapshot(forkChoiceHead);
+                        if (loadResult != true)
+                        {
+                            throw new Exception(
+                                $"Failed to load state at fork choice head {forkChoiceHead.ToPrettyString()}");
+                        }
+                        
+                        responseValue = new
+                        {
+                            payloadStatus = new PayloadStatusV1("VALID", forkChoiceHead.ToPrettyString(true), null),
+                            payloadId = (object) null!
+                        };
+                    }
+                    // If no direct snapshot, but fork choice head is ahead of canonical head, with requisite blocks in db
+                    else if (forkChoiceBlock is not null && commonAncestorBlock is not null)
                     {
                         if (!commonAncestorBlock.Hash.SequenceEqual(ChainState.LastBlockHash))
                         {
@@ -437,7 +457,6 @@ public class ExecutionLayerServer
         using var sw = new StreamWriter(context.Response.OutputStream);
         await sw.WriteAsync(encoded);
         //await JsonSerializer.SerializeAsync(context.Response.OutputStream, responseObject, DefaultSerializerOptions);
-        context.Response.ContentType = "application/json";
     }
     
     private bool syncing;
