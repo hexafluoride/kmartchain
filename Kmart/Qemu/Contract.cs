@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public class StateMap
     {

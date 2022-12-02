@@ -1,8 +1,7 @@
-using System;
 using Autofac;
+using Kmart.Qemu;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Console;
 
 namespace Kmart
 {
@@ -11,10 +10,7 @@ namespace Kmart
         public static IContainer Bootstrap(IConfiguration configuration)
         {
             var builder = new ContainerBuilder();
-
-            builder.RegisterType<BlobManager>().AsSelf();
-            builder.RegisterType<ContractExecutor>().AsSelf();
-            builder.RegisterType<QemuManager>().AsSelf();
+            
             builder.RegisterType<ExecutionLayerServer>().AsSelf();
             builder.RegisterType<FakeEthereumBlockSource>().AsSelf();
 

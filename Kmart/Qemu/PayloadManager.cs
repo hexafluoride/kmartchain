@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using Kmart.Interfaces;
 using Microsoft.Extensions.Logging;
 using Org.BouncyCastle.Crypto.Parameters;
 using SszSharp;
 
-namespace Kmart;
+namespace Kmart.Qemu;
 
 public class PayloadManager : IPayloadManager
 {

@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public struct ContractMessage
     {

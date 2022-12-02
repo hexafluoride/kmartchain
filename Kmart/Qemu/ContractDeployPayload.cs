@@ -1,8 +1,7 @@
 using System;
-using System.Text.Json;
 using SszSharp;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public class ContractDeployPayload
     {

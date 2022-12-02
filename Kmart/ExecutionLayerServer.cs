@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using JWT;
 using JWT.Algorithms;
 using JWT.Serializers;
+using Kmart.Interfaces;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using SszSharp;

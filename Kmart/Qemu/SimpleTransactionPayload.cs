@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     struct SimpleTransactionPayload
     {

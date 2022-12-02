@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Kmart.Interfaces;
 using Microsoft.Extensions.Logging;
 using SszSharp;
 
-namespace Kmart;
+namespace Kmart.Qemu;
 
 public class BlockStorage : IBlockStorage
 {

@@ -1,6 +1,6 @@
 using SszSharp;
 
-namespace Kmart;
+namespace Kmart.Interfaces;
 
 public interface IPayloadManager
 {

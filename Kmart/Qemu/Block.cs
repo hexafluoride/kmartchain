@@ -1,9 +1,10 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Kmart.Interfaces;
 using Nethereum.Model;
 using SszSharp;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public class Block : IBlock
     {

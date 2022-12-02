@@ -1,4 +1,4 @@
-namespace Kmart;
+namespace Kmart.Qemu;
 
 public enum AsyncEventType
 {

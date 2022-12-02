@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using SszSharp;
 
-namespace Kmart;
+namespace Kmart.Interfaces;
 
 public interface IChainState
 {

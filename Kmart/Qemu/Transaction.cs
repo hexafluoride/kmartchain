@@ -1,10 +1,8 @@
 using System;
-using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using SszSharp;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public class Transaction
     {

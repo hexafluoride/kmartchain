@@ -1,4 +1,4 @@
-namespace Kmart;
+namespace Kmart.Interfaces;
 
 public interface IBlock
 {

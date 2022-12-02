@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public class BlobManager
     {
@@ -9,8 +9,14 @@ namespace Kmart
         public const string ExecutionTraceKey = "exec_trace";
         public const string BlockKey = "block";
         public const string StateSnapshotKey = "state_snapshot";
-        
-        public static string DataDirectory { get; set; } = ".";
+
+        public readonly string DataDirectory;
+
+        public BlobManager(KmartConfiguration configuration)
+        {
+            DataDirectory = configuration.DataDirectory;
+            InitializeDirectories();
+        }
         
         public string GetPath(byte[] id, string type) => $"{DataDirectory}/blobs/{type}/{id.ToPrettyString()}.dat";
 

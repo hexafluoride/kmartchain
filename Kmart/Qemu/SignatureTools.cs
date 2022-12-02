@@ -8,7 +8,7 @@ using Org.BouncyCastle.Math;
 using Org.BouncyCastle.Math.EC;
 using Org.BouncyCastle.Security;
 
-namespace Kmart;
+namespace Kmart.Qemu;
 
 public class SignatureTools
 {

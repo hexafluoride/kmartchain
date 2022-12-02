@@ -2,6 +2,8 @@
 using System.IO;
 using System.Threading.Tasks;
 using Autofac;
+using Kmart.Interfaces;
+using Kmart.Qemu;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using SszSharp;
@@ -34,18 +36,11 @@ namespace Kmart
                         Environment.Exit(1);
                     }
                 }
-                
-                BlobManager.DataDirectory = Environment.CurrentDirectory = dataDir;
-                var blobManager = container.Resolve<BlobManager>();
-                blobManager.InitializeDirectories();
-                
+
+                Environment.CurrentDirectory = dataDir;
+
                 // Register chain implementation types as singletons in a lifetime
-                using (var chainScope = container.BeginLifetimeScope(scopeBuilder =>
-                   {
-                       scopeBuilder.RegisterType<ChainState>().As<IChainState>().AsSelf().SingleInstance();
-                       scopeBuilder.RegisterType<PayloadManager>().As<IPayloadManager>().AsSelf().SingleInstance();
-                       scopeBuilder.RegisterType<BlockStorage>().As<IBlockStorage>().AsSelf().SingleInstance();
-                   }))
+                using (var chainScope = container.BeginLifetimeScope(QemuBootstrapper.Register))
                 {
                     var server = chainScope.Resolve<ExecutionLayerServer>();
                     server.Start();

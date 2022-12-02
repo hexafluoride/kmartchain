@@ -4,7 +4,7 @@ using System.IO;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 
-namespace Kmart
+namespace Kmart.Qemu
 {
     public class QemuManager
     {
