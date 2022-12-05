@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace Kmart
 {
-    static class ByteArrayExtensions
+    public static class ByteArrayExtensions
     {
         public static byte[] ToByteArray(this string str, int padLeft = 0)
         {
