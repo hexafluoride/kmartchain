@@ -133,6 +133,7 @@ public class FakeEthereumBlockSource
         
         if (fromBlock <= MergeHeight && toBlock >= MergeHeight)
         {
+            GetBlock((int) MergeHeight, null);
             var mergeBlockHash = fakeBlocks.First(p => p.Value.Height == (int)MergeHeight).Key;
             return GenesisDeposits.Select((depositData, i) => depositData.CreateLogObject(mergeBlockHash, MergeHeight,
                 Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), 0,
