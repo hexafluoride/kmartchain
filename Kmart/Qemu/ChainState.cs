@@ -115,14 +115,15 @@ namespace Kmart.Qemu
 
                 var genesisBlock = new Block()
                 {
-                    Hash = GenesisState.LastExecutionPayloadHeader.BlockHash,
                     Height = GenesisState.LastExecutionPayloadHeader.BlockNumber,
                     Timestamp = GenesisState.LastExecutionPayloadHeader.Timestamp,
                     Parent = new byte[32],
-                    Coinbase = new byte[20],
+                    FeeRecipient = new byte[20],
                     Nonce = new byte[8],
                     Transactions = new Transaction[0]
                 };
+                
+                genesisBlock.FakeHash(GenesisState.LastExecutionPayloadHeader.BlockHash);
 
                 Snapshot = new ChainStateSnapshot();
 

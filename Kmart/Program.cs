@@ -2,7 +2,6 @@
 using System.IO;
 using System.Threading.Tasks;
 using Autofac;
-using Kmart.Interfaces;
 using Kmart.Qemu;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;

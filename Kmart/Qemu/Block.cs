@@ -1,7 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 using Kmart.Interfaces;
-using Nethereum.Model;
 using SszSharp;
 
 namespace Kmart.Qemu
@@ -10,47 +10,44 @@ namespace Kmart.Qemu
     {
         public static SszContainer<Block> SszType = SszContainer.GetContainer<Block>();
 
-        [JsonIgnore]
-        [SszElement(0, "Vector[uint8, 32]")]
-        public byte[] Hash { get; set; } = new byte[32];
+        public byte[] Hash => _hash ??= SszContainer.HashTreeRoot(this);
+        private byte[]? _hash;
 
-        [SszElement(1, "Vector[uint8, 8]")]
+        [SszElement(0, "Vector[uint8, 8]")]
         public byte[] Nonce { get; set; } = new byte[8];
-        [SszElement(2, "Vector[uint8, 32]")]
+        [SszElement(1, "Vector[uint8, 32]")]
         public byte[] Parent { get; set; } = new byte[32];
         
-        [SszElement(3, "uint64")]
+        [SszElement(2, "uint64")]
         public ulong Timestamp { get; set; }
 
-        [SszElement(4, "List[Container, 65536]")]
-        public Transaction[] Transactions { get; set; } = new Transaction[0];
-        [SszElement(5, "uint64")]
-        public ulong Height { get; set; }
-        [SszElement(6, "Vector[uint8, 20]")]
-        public byte[] Coinbase { get; set; } = new byte[20];
-
-        public BlockHeader GetEthBlockHeader()
+        private Transaction[] _transactions = new Transaction[0];
+        
+        [SszElement(3, "List[Container, 65536]")]
+        public Transaction[] Transactions
         {
-            return new BlockHeader()
+            get => _transactions;
+            set
             {
-                ParentHash = Parent,
-                BaseFee = 1,
-                BlockNumber = Height,
-                Coinbase = Coinbase.ToPrettyString(),
-                Difficulty = 0,
-                ExtraData = new byte[0],
-                GasLimit = 2,
-                GasUsed = 0,
-                LogsBloom = new byte[256],
-                MixHash = new byte[32],
-                UnclesHash = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347".ToByteArray(),
-                Nonce = new byte[8],
-                Timestamp = (long)Timestamp,
-                TransactionsHash = new byte[32],
-                ReceiptHash = new byte[32],
-                StateRoot = new byte[32]
-            };
+                _transactions = value;
+                transactionsEncoded = _transactions.Select(tx => SszContainer.Serialize(tx)).ToList();
+            }
         }
+        [SszElement(4, "uint64")]
+        public ulong Height { get; set; }
+        [SszElement(5, "Vector[uint8, 20]")]
+        public byte[] FeeRecipient { get; set; } = new byte[20];
+        
+        [SszElement(6, "Vector[uint8, 32]")] public byte[] PrevRandao { get; set; } = new byte[32];
+        [SszElement(7, "Vector[uint8, 32]")] public byte[] StateRoot { get; set; } = new byte[32];
+        [SszElement(8, "Vector[uint8, 32]")] public byte[] ReceiptsRoot { get; set; } = new byte[32];
+        [SszElement(9, "Vector[uint8, 32]")] public byte[] LogsBloom { get; set; } = new byte[32];
+        [SszElement(10, "Vector[uint8, 32]")] public byte[] ExtraData { get; set; } = new byte[0];
+        [SszElement(11, "uint64")] public ulong GasLimit { get; set; }
+        [SszElement(12, "uint64")] public ulong GasUsed { get; set; }
+        [SszElement(13, "uint64")] public ulong BaseFeePerGas { get; set; }
+        private List<byte[]> transactionsEncoded = new();
+        public IEnumerable<byte[]> TransactionsEncoded => transactionsEncoded;
 
         public List<DepositData> GetDeposits()
         {
@@ -58,11 +55,8 @@ namespace Kmart.Qemu
             return new List<DepositData>();
         }
         
-        public void CalculateHash()
-        {
-            Hash = new byte[32];
-            Hash = Merkleizer.HashTreeRoot(SszType, this);
-        }
+        public void CalculateHash() => _hash = SszContainer.HashTreeRoot(this);
+        public void FakeHash(byte[] hash) => _hash = hash;
 
         public override string ToString()
         {

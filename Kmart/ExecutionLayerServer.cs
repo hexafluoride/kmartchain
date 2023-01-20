@@ -28,8 +28,11 @@ public class ExecutionLayerServer
     private readonly KmartConfiguration Configuration;
     private readonly FakeEthereumBlockSource FakeEthereumBlockSource;
     private readonly IPayloadManager PayloadManager;
+    private readonly IEnumerable<IRpcProvider> RpcProviders;
 
     private readonly JsonSerializerOptions DefaultSerializerOptions = new();
+
+    private readonly Dictionary<string, IRpcProvider> ProvidedCommands = new();
 
     public ExecutionLayerServer(
         ILogger<ExecutionLayerServer> logger,
@@ -37,8 +40,8 @@ public class ExecutionLayerServer
         IBlockStorage blockStorage,
         KmartConfiguration configuration,
         FakeEthereumBlockSource fakeEthereumBlockSource,
-        IPayloadManager payloadManager
-        )
+        IPayloadManager payloadManager,
+        IEnumerable<IRpcProvider> rpcProviders)
     {
         HttpListener = new HttpListener();
         Algorithm = new HMACSHA256Algorithm();
@@ -49,6 +52,10 @@ public class ExecutionLayerServer
         FakeEthereumBlockSource =
             fakeEthereumBlockSource ?? throw new ArgumentNullException(nameof(fakeEthereumBlockSource));
         PayloadManager = payloadManager ?? throw new ArgumentNullException(nameof(payloadManager));
+        RpcProviders = rpcProviders ?? throw new ArgumentNullException(nameof(rpcProviders));
+
+        ProvidedCommands = RpcProviders.SelectMany(provider => provider.Commands.Select(command => (provider, command)))
+            .ToDictionary(p => p.command, p => p.provider);
 
         IJsonSerializer serializer = new JsonNetSerializer();
         IDateTimeProvider provider = new UtcDateTimeProvider();
@@ -69,48 +76,74 @@ public class ExecutionLayerServer
 
     public async Task Serve()
     {
+        var contextRequests = new HashSet<Task>();
+        for (int i = 0; i < 4; i++)
+            contextRequests.Add(HttpListener.GetContextAsync());
+        
         while (HttpListener.IsListening)
         {
-            var context = await HttpListener.GetContextAsync();
+            var task = await Task.WhenAny(contextRequests);
+            contextRequests.Remove(task);
 
-            try
+            if (task is Task<HttpListenerContext> contextRequest)
             {
-                var request = context.Request;
-                
-                var token = request.Headers["JWT"];
-
-                if (token is not null)
+                var context = await contextRequest;
+                try
                 {
-                    var decoded = JwtDecoder.Decode(token);
-                    Logger.LogInformation("Received JWT token {decoded}", decoded);
+                    var request = context.Request;
+
+                    var token = request.Headers["JWT"];
+
+                    if (token is not null)
+                    {
+                        var decoded = JwtDecoder.Decode(token);
+                        Logger.LogInformation("Received JWT token {decoded}", decoded);
+                    }
+
+                    using var bodyReader = new StreamReader(request.InputStream);
+                    var body = await bodyReader.ReadToEndAsync();
+
+                    Logger.LogInformation("Received request body {body}",
+                        body.Substring(0, Math.Min(2000, body.Length)));
+
+                    var bodyDecoded = JsonDocument.Parse(body);
+                    var bodyElement = bodyDecoded.RootElement;
+                    var method = bodyElement.GetProperty("method").GetString() ??
+                                 throw new Exception("Could not decode method in JSON-RPC request");
+                    var id = bodyElement.GetProperty("id").GetInt32();
+                    var hasParams = bodyElement.TryGetProperty("params", out JsonElement parameters);
+
+                    if (ChainState.GenesisState is null)
+                    {
+                        ResetFromGenesis();
+                    }
+
+                    if (ProvidedCommands.ContainsKey(method))
+                    {
+                        contextRequests.Add(ProvidedCommands[method].ServeRequestAsync(context, id, method, parameters));
+                    }
+                    else
+                    {
+                        contextRequests.Add(ServeRequest(context, id, method, parameters));
+                    }
+
+                    contextRequests.Add(HttpListener.GetContextAsync());
                 }
-
-                using var bodyReader = new StreamReader(request.InputStream);
-                var body = await bodyReader.ReadToEndAsync();
-                
-                Logger.LogInformation("Received request body {body}", body.Substring(0, Math.Min(2000, body.Length)));
-
-                var bodyDecoded = JsonDocument.Parse(body);
-                var bodyElement = bodyDecoded.RootElement;
-                var method = bodyElement.GetProperty("method").GetString() ?? throw new Exception("Could not decode method in JSON-RPC request");
-                var id = bodyElement.GetProperty("id").GetInt32();
-                var hasParams = bodyElement.TryGetProperty("params", out JsonElement parameters);
-
-                if (ChainState.GenesisState is null)
+                catch (Exception e)
                 {
-                    ResetFromGenesis();
+                    Logger.LogError(e, "Exception caught while serving HTTP request");
                 }
-
-                await ServeRequest(context, id, method, parameters);
+                finally
+                {
+                    // context.Response.Close();
+                }
             }
-            catch (Exception e)
+            else
             {
-                Logger.LogError(e, "Exception caught while serving HTTP request");
-                // throw;
-            }
-            finally
-            {
-                context.Response.Close();
+                if (task.IsFaulted)
+                {
+                    Logger.LogError(task.Exception, "Exception caught while serving HTTP request");
+                }
             }
         }
     }
@@ -170,13 +203,10 @@ public class ExecutionLayerServer
                 var hash = hashSpec.StartsWith("0x") ? hashSpec.ToByteArray() :
                     hashSpec.Length == 64 ? hashSpec.ToByteArray() : new byte[0];
 
-                if (hash.Length == 32 && ChainState.IsAncestorOfHead(hash))
+                var realBlock = BlockStorage.GetBlock(hash);
+                if (realBlock is not null)
                 {
-                    var realBlock = BlockStorage.GetBlock(hash);
-                    if (realBlock is not null)
-                    {
-                        FakeEthereumBlockSource.CreateFromRealBlock(realBlock);
-                    }
+                    FakeEthereumBlockSource.CreateFromRealBlock(realBlock);
                 }
 
                 var resultBlock = FakeEthereumBlockSource.GetBlock(hash);
@@ -525,6 +555,7 @@ public class ExecutionLayerServer
         ChainState.SetGenesisState(deserializedState);
         var lastStateRoot = Merkleizer.HashTreeRoot(beaconStateType, deserializedState);
         Logger.LogInformation($"Loaded genesis state with root hash {lastStateRoot.ToPrettyString()}");
+        Logger.LogInformation($"Genesis state has {deserializedState.Validators.Count} validators");
     }
 
     List<IBlock> GetFastForwardList(IBlock sourceBlock, IBlock targetBlock)

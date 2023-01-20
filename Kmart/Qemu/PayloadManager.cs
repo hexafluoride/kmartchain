@@ -51,9 +51,8 @@ public class PayloadManager : IPayloadManager
             var block = new Block()
             {
                 Height = payload.BlockNumber,
-                Coinbase = payload.FeeRecipient,
+                FeeRecipient = payload.FeeRecipient,
                 Nonce = new byte[8],
-                Hash = payload.BlockHash,
                 Parent = payload.Root,
                 Timestamp = payload.Timestamp,
                 Transactions = payload.Transactions.Select(txBytes => Transaction.Deserialize(txBytes).Item1).ToArray(),

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Kmart.Interfaces;
 using Microsoft.Extensions.Logging;
+using Org.BouncyCastle.Math;
 
 namespace Kmart;
 
@@ -81,7 +82,16 @@ public class FakeEthereumBlockSource
                 : FakeEthereumBlock.PreMergeDifficulty,
             Hash = newHashStr,
             ParentHash = lastHash.ToPrettyString(true),
-            Timestamp = (int) (time - DateTime.UnixEpoch).TotalSeconds
+            Timestamp = (int) (time - DateTime.UnixEpoch).TotalSeconds,
+            BaseFeePerGas = 0,
+            FeeRecipient = new byte[20].ToPrettyString(true),
+            GasUsed = 0,
+            GasLimit = 0,
+            PrevRandao = new byte[32].ToPrettyString(true),
+            LogsBloom = new byte[256].ToPrettyString(true),
+            StateRoot = new byte[32].ToPrettyString(true),
+            RecipientsRoot = new byte[32].ToPrettyString(true),
+            Transactions = new string[0]
         };
 
         if (newHeight > LastFakedHeight)
@@ -93,7 +103,7 @@ public class FakeEthereumBlockSource
 
     public FakeEthereumBlock CreateFromRealBlock(IBlock block)
     {
-        var hashString = block.Hash.ToPrettyString();
+        var hashString = block.Hash.ToPrettyString(true);
         fakeBlocks[hashString] = new FakeEthereumBlock()
         {
             Hash = block.Hash.ToPrettyString(true),
@@ -102,7 +112,17 @@ public class FakeEthereumBlockSource
                 : FakeEthereumBlock.PostMergeDifficulty,
             Height = (int) block.Height,
             ParentHash = block.Parent.ToPrettyString(true),
-            Timestamp = (int) block.Timestamp
+            Timestamp = (int) block.Timestamp,
+            BaseFeePerGas = block.BaseFeePerGas,
+            ExtraData = block.ExtraData.ToPrettyString(true),
+            FeeRecipient = block.FeeRecipient.ToPrettyString(true),
+            GasUsed = block.GasUsed,
+            GasLimit = block.GasLimit,
+            PrevRandao = block.PrevRandao.ToPrettyString(true),
+            LogsBloom = block.LogsBloom.ToPrettyString(true),
+            StateRoot = block.StateRoot.ToPrettyString(true),
+            RecipientsRoot = block.ReceiptsRoot.ToPrettyString(true),
+            Transactions = block.TransactionsEncoded.Select(txEncoded => txEncoded.RlpWrap().RlpUnwrapTransaction()).ToArray()
         };
 
         return fakeBlocks[hashString];
@@ -149,9 +169,19 @@ public class FakeEthereumBlock
 {
     public int Height { get; set; }
     public int Timestamp { get; set; }
-    public string ParentHash { get; set; } = "0x0";
-    public string Hash { get; set; } = "0x0";
-    public string Difficulty { get; set; } = "0x0";
+    public string ParentHash { get; set; } = "0x";
+    public string Hash { get; set; } = "0x";
+    public string Difficulty { get; set; } = "0x";
+    public string FeeRecipient { get; set; } = "0x";
+    public string StateRoot { get; set; } = "0x";
+    public string RecipientsRoot { get; set; } = "0x";
+    public string LogsBloom { get; set; } = "0x";
+    public string ExtraData { get; set; } = "0x";
+    public string PrevRandao { get; set; } = "0x";
+    public ulong GasLimit { get; set; }
+    public ulong GasUsed { get; set; }
+    public ulong BaseFeePerGas { get; set; }
+    public object[] Transactions { get; set; }
 
     public const string PreMergeDifficulty = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffbff";
     public const string PostMergeDifficulty = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc01";
@@ -168,7 +198,19 @@ public class FakeEthereumBlock
             difficulty = Difficulty,
             totalDifficulty = Difficulty,
             timestamp = BitConverter.GetBytes(Timestamp)
-                .Reverse().ToArray().ToPrettyString(true, true)
+                .Reverse().ToArray().ToPrettyString(true, true),
+            miner = FeeRecipient,
+            stateRoot = StateRoot,
+            receiptsRoot = RecipientsRoot,
+            logsBloom = LogsBloom,
+            gasLimit = GasLimit.EncodeQuantity(),
+            gasUsed = GasUsed.EncodeQuantity(),
+            baseFeePerGas = BaseFeePerGas.EncodeQuantity(),
+            extraData = ExtraData,
+            mixHash = PrevRandao,
+            uncles = new object[0],
+            sha3Uncles = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+            transactions = Transactions
         };
     }
 }
