@@ -14,5 +14,7 @@ public static class QemuBootstrapper
         builder.RegisterType<ChainState>().As<IChainState>().AsSelf().SingleInstance();
         builder.RegisterType<PayloadManager>().As<IPayloadManager>().AsSelf().SingleInstance();
         builder.RegisterType<BlockStorage>().As<IBlockStorage>().AsSelf().SingleInstance();
+
+        builder.RegisterType<QemuRpcProvider>().As<IRpcProvider>().AsSelf().SingleInstance();
     }
 }

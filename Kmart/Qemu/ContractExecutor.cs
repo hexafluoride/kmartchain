@@ -46,7 +46,7 @@ namespace Kmart.Qemu
                 if (verify)
                 {
                     Logger.LogDebug("Verifying {nonce}-th tx", transaction.Nonce);
-                    qemuInstance = QemuManager.StartReplay(chainState, verifyReceipt!.Value) ??
+                    qemuInstance = QemuManager.StartReplay(chainState, verifyReceipt!) ??
                                    throw new Exception("Could not initialize qemu");
                 }
                 else
@@ -145,17 +145,17 @@ namespace Kmart.Qemu
                                 callRollbackContext.AddRollbackActions(childCallResult.RollbackContext);
 
                                 // Generate CallResult contractmessage
-                                byte[] callResultEncoded = childCallResult.Receipt.Value.Reverted ? new byte[1] : new byte[childCallResult.Receipt.Value.ReturnValue.Length + 1];
-                                if (childCallResult.Receipt.Value.Reverted)
+                                byte[] callResultEncoded = childCallResult.Receipt.Reverted ? new byte[1] : new byte[childCallResult.Receipt.ReturnValue.Length + 1];
+                                if (childCallResult.Receipt.Reverted)
                                 {
                                     callResultEncoded[0] = 0xFF;
                                 }
                                 else
                                 {
-                                    Array.Copy(childCallResult.Receipt.Value.ReturnValue, 0, callResultEncoded, 1, childCallResult.Receipt.Value.ReturnValue.Length);
+                                    Array.Copy(childCallResult.Receipt.ReturnValue, 0, callResultEncoded, 1, childCallResult.Receipt.ReturnValue.Length);
                                 }
                                 
-                                childCalls.Add(childCallResult.Receipt.Value);
+                                childCalls.Add(childCallResult.Receipt);
                                 var callResultContractMessage = new ContractMessage(MessageType.CallResult, callResultEncoded);
 
                                 qemuInstance.FulfillRequest(callResultContractMessage);
@@ -202,9 +202,9 @@ namespace Kmart.Qemu
                         throw new Exception("This is just to shut up the static nullability analyzer");
                     }
 
-                    var returnMessageMatch = returnMessage.Value.Payload.SequenceEqual(verifyReceipt.Value.ReturnValue);
-                    var stateChangeMatch = stateChangeHash.SequenceEqual(verifyReceipt.Value.StateLog);
-                    var instructionCountMatch = instructionCount == verifyReceipt.Value.InstructionCount;
+                    var returnMessageMatch = returnMessage.Value.Payload.SequenceEqual(verifyReceipt.ReturnValue);
+                    var stateChangeMatch = stateChangeHash.SequenceEqual(verifyReceipt.StateLog);
+                    var instructionCountMatch = instructionCount == verifyReceipt.InstructionCount;
                     
                     var callResult = new ContractCallResult()
                     {

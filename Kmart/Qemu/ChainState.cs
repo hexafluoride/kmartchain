@@ -272,6 +272,8 @@ namespace Kmart.Qemu
                 {
                     throw new Exception($"Transaction {transaction.Hash.ToPrettyString()} not signed");
                 }
+                
+                Logger.LogInformation($"Processing transaction {transaction.Hash.ToPrettyString()}");
 
                 switch (transaction.Type)
                 {
@@ -365,10 +367,10 @@ namespace Kmart.Qemu
                     case TransactionType.Invoke:
                     {
                         var invokePayload = ContractInvokePayload.FromTransaction(transaction);
+                        var invokeReceipt = ContractInvocationReceipt.FromTransaction(transaction);
                         // pass in calldata
                         // contract can call to host to read/write state
                         // contract returns value
-                        var receipt = new ContractInvocationReceipt();
                         var call = new ContractCall();
 
                         if (Contracts.ContainsKey(invokePayload.Target))
@@ -383,15 +385,10 @@ namespace Kmart.Qemu
 
                         call.CallData = invokePayload.CallData;
                         call.Function = invokePayload.Function;
-                        receipt.ReturnValue = invokePayload.ReturnValue;
-                        receipt.ExecutionTrace = invokePayload.ExecutionTrace;
-                        receipt.Transaction = transaction;
-                        receipt.StateLog = invokePayload.StateLog;
-                        receipt.InstructionCount = invokePayload.InstructionCount;
                         call.Caller = call.Source = transaction.Address;
-                        receipt.Call = call;
+                        invokeReceipt.Call = call;
 
-                        var callResult = ContractExecutor.Execute(receipt.Call, transaction, this, receipt);
+                        var callResult = ContractExecutor.Execute(call, transaction, this, invokeReceipt);
 
                         if (callResult?.RollbackContext is not null)
                             rollbackContext.AddRollbackActions(callResult.RollbackContext);

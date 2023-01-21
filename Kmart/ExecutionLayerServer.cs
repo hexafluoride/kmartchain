@@ -112,6 +112,9 @@ public class ExecutionLayerServer
                                  throw new Exception("Could not decode method in JSON-RPC request");
                     var id = bodyElement.GetProperty("id").GetInt32();
                     var hasParams = bodyElement.TryGetProperty("params", out JsonElement parameters);
+                    
+                    // Set * CORS
+                    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
 
                     if (ChainState.GenesisState is null)
                     {

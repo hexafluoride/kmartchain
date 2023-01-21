@@ -19,6 +19,8 @@ public class PayloadManager : IPayloadManager
     public int InjectedTx;
     public Dictionary<long, ExecutionPayload> Payloads = new();
 
+    public List<Transaction> Mempool = new();
+
     public PayloadManager(ChainState chainState, ContractExecutor executor, ILogger<PayloadManager> logger)
     {
         ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
@@ -55,7 +57,15 @@ public class PayloadManager : IPayloadManager
                 Nonce = new byte[8],
                 Parent = payload.Root,
                 Timestamp = payload.Timestamp,
-                Transactions = payload.Transactions.Select(txBytes => Transaction.Deserialize(txBytes).Item1).ToArray(),
+                Transactions = payload.Transactions.Select(txBytes => Transaction.Deserialize(txBytes.RlpUnwrap()).Item1).ToArray(),
+                BaseFeePerGas = (ulong) payload.BaseFeePerGas,
+                ExtraData = payload.ExtraData,
+                GasLimit = payload.GasLimit,
+                GasUsed = payload.GasUsed,
+                LogsBloom = payload.LogsBloom,
+                PrevRandao = payload.PrevRandao,
+                ReceiptsRoot = payload.ReceiptsRoot,
+                StateRoot = payload.StateRoot
             };
             block.CalculateHash();
             payload.BlockHash = block.Hash;
@@ -88,6 +98,9 @@ public class PayloadManager : IPayloadManager
 
         CreateBlockFromPayload(payload);
         InjectTransactionsIntoPayload(payloadId);
+        
+        
+        
         return payloadId;
     }
 
@@ -127,7 +140,6 @@ public class PayloadManager : IPayloadManager
                     }.Serialize()
                 };
             }
-
             Transaction? CreateContractCall(string function, byte[] calldata)
             {
                 var contractAddr = ChainState.Contracts.Single().Key;
@@ -180,7 +192,8 @@ public class PayloadManager : IPayloadManager
 
                         Logger.LogInformation(
                             $"Calldata for {function} is {calldata.ToPrettyString()}, return value is {receipt.ReturnValue.ToPrettyString()}, call took {sw.Elapsed}, {receipt.InstructionCount} instructions");
-                        executionTx.Payload = executionPayload.SerializeWithTrace();
+                        executionTx.Payload = executionPayload.Serialize();
+                        executionTx.Receipt = receipt.Serialize();
 
                         //File.WriteAllText($"./tx-{n++}", JsonSerializer.Serialize(executionTx));
 
@@ -214,8 +227,44 @@ public class PayloadManager : IPayloadManager
 
             txToInject = SignTransaction(txToInject);
             var payload = Payloads[payloadId];
-            payload.Transactions.Add(SszContainer.Serialize(txToInject));
+            payload.Transactions.Add(SszContainer.Serialize(txToInject).RlpWrap());
 
+            if (Mempool.Any())
+            {
+                foreach (var transaction in Mempool)
+                {
+                    switch (transaction.Type)
+                    {
+                        case TransactionType.Invoke:
+                        {
+                            try
+                            {
+                                lock (ChainState.LockObject)
+                                {
+                                    var payloadDecoded = ContractInvokePayload.FromTransaction(transaction);
+                                    var payloadCall = ContractCall.FromPayload(transaction, payloadDecoded);
+                                    var executionResult = Executor.Execute(payloadCall, transaction, ChainState) ??
+                                                          throw new Exception($"Failed to execute");
+                                    executionResult.RollbackContext?.ExecuteRollback();
+                                    
+                                    var executionReceipt = executionResult.Receipt ??
+                                                           throw new Exception($"Failed to generate execution receipt");
+
+                                    transaction.Receipt = executionReceipt.Serialize();
+                                    payload.Transactions.Add(SszContainer.Serialize(transaction).RlpWrap());
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                Logger.LogError(e, $"Failed to process mempool tx {transaction.Hash.ToPrettyString()}");
+                            }
+                            break;   
+                        }
+                    }
+                }
+
+                Mempool.Clear();
+            }
         }
         catch (Exception e)
         {

@@ -41,8 +41,8 @@ namespace Kmart.Qemu
         [SszElement(6, "Vector[uint8, 32]")] public byte[] PrevRandao { get; set; } = new byte[32];
         [SszElement(7, "Vector[uint8, 32]")] public byte[] StateRoot { get; set; } = new byte[32];
         [SszElement(8, "Vector[uint8, 32]")] public byte[] ReceiptsRoot { get; set; } = new byte[32];
-        [SszElement(9, "Vector[uint8, 32]")] public byte[] LogsBloom { get; set; } = new byte[32];
-        [SszElement(10, "Vector[uint8, 32]")] public byte[] ExtraData { get; set; } = new byte[0];
+        [SszElement(9, "List[uint8, 256]")] public byte[] LogsBloom { get; set; } = new byte[256];
+        [SszElement(10, "List[uint8, 256]")] public byte[] ExtraData { get; set; } = new byte[0];
         [SszElement(11, "uint64")] public ulong GasLimit { get; set; }
         [SszElement(12, "uint64")] public ulong GasUsed { get; set; }
         [SszElement(13, "uint64")] public ulong BaseFeePerGas { get; set; }

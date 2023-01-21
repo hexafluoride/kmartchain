@@ -47,10 +47,10 @@ public class BlockStorage : IBlockStorage
             try
             {
                 (var blockLoaded, _) = SszContainer.Deserialize<Block>(File.ReadAllBytes(path));
-                if (!blockLoaded.Hash.SequenceEqual(hash))
-                {
-                    throw new Exception("Loaded block does not match block hash");
-                }
+                // if (!blockLoaded.Hash.SequenceEqual(hash))
+                // {
+                //     throw new Exception("Loaded block does not match block hash");
+                // }
 
                 lock (BlocksByHash)
                 {

@@ -35,13 +35,19 @@ namespace Kmart.Qemu
         [SszElement(7, "List[uint8, 16777216]")]
         public byte[] Payload { get; set; } = new byte[0];
 
+        [SszElement(8, "List[uint8, 16777216]")]
+        public byte[] Receipt { get; set; } = new byte[0];
+
         public void CalculateHash()
         {
             var sigTemp = Signature;
+            var receiptTemp = Receipt;
             Signature = new byte[64];
             Hash = new byte[32];
+            Receipt = new byte[0];
             Hash = Merkleizer.HashTreeRoot(SszType, this);
             Signature = sigTemp;
+            Receipt = receiptTemp;
         }
 
         public static (Transaction, int) Deserialize(ReadOnlySpan<byte> bytes)
