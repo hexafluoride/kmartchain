@@ -168,6 +168,12 @@ namespace Kmart.Qemu
                                 }
                                 break;
                             }
+                            case MessageType.MetadataRead:
+                            {
+                                var response = new ContractMessage(MessageType.MetadataRead, call.Caller);
+                                qemuInstance.FulfillRequest(response);
+                                break;
+                            }
                         }
                     }
                 }
@@ -187,6 +193,44 @@ namespace Kmart.Qemu
                     ms.Write(step, 0, step.Length);
                 }
 
+                var executionTrace = verifyReceipt?.ExecutionTrace ?? qemuInstance.GetExecutionTrace();
+                ulong fairCompute = instructionCount;
+                
+                using (var traceMs = new MemoryStream(executionTrace))
+                {
+                    var allMessages = new ReplayParser(traceMs).ParseAllMessages().ToList();
+                    foreach (var message in allMessages)
+                    {
+                        Logger.LogInformation(message.ToString());
+                    }
+
+                    fairCompute = CalculateFairComputeUse(allMessages);
+                    Logger.LogInformation($"Fair compute use was {fairCompute} instructions out of {instructionCount} total");
+
+                    if (verify)
+                    {
+                        int hostWriteIndex = 0;
+                        for (int i = 0; i < allMessages.Count; i++)
+                        {
+                            if (allMessages[i].Direction != ReplayMessageDirection.HostToGuest)
+                                continue;
+
+                            using var messageMs = new MemoryStream();
+                            qemuInstance.WrittenMessages[hostWriteIndex].Write(messageMs);
+                            var honestMessageSerialized = messageMs.ToArray();
+                            var messageInLog = allMessages[i].Contents;
+
+                            if (!honestMessageSerialized.SequenceEqual(messageInLog))
+                            {
+                                Logger.LogError(
+                                    $"Host -> guest message #{hostWriteIndex} does not match: honest {honestMessageSerialized.ToPrettyString()}, found {messageInLog.ToPrettyString()}");
+                            }
+
+                            hostWriteIndex++;
+                        }
+                    }
+                }
+
                 var stateChangeHash = SHA256.HashData(ms.ToArray());
 
                 // Rollback all state actions if call is reverted
@@ -204,7 +248,7 @@ namespace Kmart.Qemu
 
                     var returnMessageMatch = returnMessage.Value.Payload.SequenceEqual(verifyReceipt.ReturnValue);
                     var stateChangeMatch = stateChangeHash.SequenceEqual(verifyReceipt.StateLog);
-                    var instructionCountMatch = instructionCount == verifyReceipt.InstructionCount;
+                    var instructionCountMatch = fairCompute == verifyReceipt.InstructionCount;
                     
                     var callResult = new ContractCallResult()
                     {
@@ -228,11 +272,11 @@ namespace Kmart.Qemu
                     {
                         Call = call,
                         Transaction = transaction,
-                        ExecutionTrace = qemuInstance.GetExecutionTrace(),
+                        ExecutionTrace = executionTrace,
                         ReturnValue = returnMessage.Value.Payload,
                         StateLog = stateChangeHash,
                         ChildCalls = childCalls.ToArray(),
-                        InstructionCount = instructionCount,
+                        InstructionCount = fairCompute,
                         Reverted = executionReverted
                     };
 
@@ -264,6 +308,27 @@ namespace Kmart.Qemu
                     qemuInstance.Cleanup();
                 }
             }
+        }
+
+        public ulong CalculateFairComputeUse(IEnumerable<ReplayedMessage> messages)
+        {
+            ulong usedInstructions = 0;
+            ulong lastHostWrite = 0;
+
+            foreach (var message in messages)
+            {
+                if (message.Direction == ReplayMessageDirection.HostToGuest)
+                {
+                    lastHostWrite = message.EndInstruction;
+                }
+
+                if (message.Direction == ReplayMessageDirection.GuestToHost)
+                {
+                    usedInstructions += message.EndInstruction - lastHostWrite;
+                }
+            }
+
+            return usedInstructions;
         }
     }
 }

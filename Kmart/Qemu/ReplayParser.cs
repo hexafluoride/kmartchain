@@ -5,13 +5,39 @@ using System.Linq;
 
 namespace Kmart.Qemu;
 
+public enum ReplayMessageDirection
+{
+    Invalid,
+    HostToGuest,
+    GuestToHost
+}
+
+public class ReplayedMessage
+{
+    public ulong StartInstruction;
+    public ulong EndInstruction;
+    public byte[] Contents = Array.Empty<byte>();
+    public ReplayMessageDirection Direction;
+
+    public override string ToString()
+    {
+        if (Direction == ReplayMessageDirection.GuestToHost)
+        {
+            return $"{Direction} message took {EndInstruction - StartInstruction} instructions (start {StartInstruction}, end {EndInstruction})";
+        }
+
+        return $"{Direction} message {Contents.Length} bytes, took {EndInstruction - StartInstruction} instructions (start {StartInstruction}, end {EndInstruction})";
+    }
+}
+
 public class ReplayParser
 {
-    private readonly FileStream File;
+    private readonly Stream File;
     
-    public ReplayParser(FileStream fs)
+    public ReplayParser(Stream stream)
     {
-        File = fs;
+        File = stream;
+        Init();
     }
 
     public static void DumpAllEvents(string path)
@@ -42,7 +68,6 @@ public class ReplayParser
         }
         
         Console.WriteLine($"Done with {path}");
-        
     }
 
     byte[] ReadBytes(int n)
@@ -69,14 +94,94 @@ public class ReplayParser
     public void Init()
     {
         var version = ReadBytes(4);
-        
-        Console.WriteLine($"Replay file version {version.ToPrettyString()}");
-
+        // Console.WriteLine($"Replay file version {version.ToPrettyString()}");
         var reserved = ReadBytes(8);
 
         if (!reserved.All(b => b == 0))
         {
             throw new Exception("Reserved field not empty");
+        }
+    }
+
+    public IEnumerable<ReplayedMessage> ParseAllMessages()
+    {
+        var currentBuf = new MemoryStream();
+        long startIP = -1;
+        long currentIP = -1;
+        long lastByteIP = -1;
+        
+        ReplayMessageDirection currentDirection = ReplayMessageDirection.Invalid;
+
+        ReplayedMessage ConsumeCurrent()
+        {
+            var msg = new ReplayedMessage()
+            {
+                Contents = currentBuf.ToArray(),
+                StartInstruction = (ulong) startIP,
+                EndInstruction = (ulong) lastByteIP,
+                Direction = currentDirection
+            };
+
+            startIP = -1;
+            lastByteIP = -1;
+            currentDirection = ReplayMessageDirection.Invalid;
+            currentBuf.Dispose();
+
+            return msg;
+        }
+
+        void InitializeMessage(ReplayMessageDirection direction)
+        {
+            currentDirection = direction;
+            startIP = currentIP;
+            currentBuf = new MemoryStream();
+        }
+        
+        ReplayEvent? nextEvent;
+        while ((nextEvent = ParseNextEvent()) is not null)
+        {
+            if (nextEvent.Type == ReplayEventType.REPLAY_ASYNC)
+            {
+                var asyncEventType = (AsyncEventType)nextEvent.Contents[1][0];
+                if (asyncEventType == AsyncEventType.REPLAY_ASYNC_EVENT_CHAR_READ)
+                {
+                    if (currentDirection == ReplayMessageDirection.GuestToHost)
+                    {
+                        yield return ConsumeCurrent();
+                    }
+
+                    if (currentDirection == ReplayMessageDirection.Invalid)
+                    {
+                        InitializeMessage(ReplayMessageDirection.HostToGuest);
+                    }
+                    
+                    currentBuf.Write(nextEvent.Contents.Last());
+                    lastByteIP = currentIP;
+                }
+            }
+            else if (nextEvent.Type == ReplayEventType.EVENT_INSTRUCTION)
+            {
+                currentIP += BitConverter.ToUInt32(nextEvent.Contents[0].Reverse().ToArray());
+            }
+            else if (nextEvent.Type == ReplayEventType.EVENT_CHAR_WRITE)
+            {
+                if (currentDirection == ReplayMessageDirection.HostToGuest)
+                {
+                    yield return ConsumeCurrent();
+                }
+
+                if (currentDirection == ReplayMessageDirection.Invalid)
+                {
+                    InitializeMessage(ReplayMessageDirection.GuestToHost);
+                }
+                
+                lastByteIP = currentIP;
+            }
+        }
+
+        if (currentDirection != ReplayMessageDirection.Invalid)
+        {
+            yield return ConsumeCurrent();
         }
     }
 
@@ -91,13 +196,7 @@ public class ReplayParser
         var ret = new ReplayEvent() {Type = nextType};
 
         AsyncEventType? subtype = null;
-
-        // if (nextType >= ReplayEventType.REPLAY_ASYNC && nextType <= ReplayEventType.REPLAY_ASYNC_LAST)
-        // {
-        //     subtype = (AsyncEventType) (nextType - ReplayEventType.REPLAY_ASYNC);
-        //     nextType = ReplayEventType.REPLAY_ASYNC;
-        //     ret.Type = nextType;
-        // }
+        
         if (!Enum.IsDefined<ReplayEventType>(nextType))
         {
             throw new Exception($"Unidentified type {nextType} at position {File.Position - 1}");

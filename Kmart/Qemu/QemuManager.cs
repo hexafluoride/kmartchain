@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
@@ -186,6 +187,8 @@ namespace Kmart.Qemu
         private readonly StreamReader MonitorReader;
         private readonly ILogger<QemuInstance> Logger;
         
+        public List<ContractMessage> WrittenMessages = new();
+        
         public GuestState State { get; set; }
         public ContractMessage? OutstandingRequest;
 
@@ -283,6 +286,7 @@ namespace Kmart.Qemu
             if (SerialPort.CanWrite)
             {
                 //Console.WriteLine();
+                WrittenMessages.Add(message);
                 message.Write(SerialPort);
                 SerialPort.Flush();
             }
@@ -291,6 +295,7 @@ namespace Kmart.Qemu
         public void FulfillRequest(ContractMessage response)
         {
             // Post message to guest and resume execution
+            WrittenMessages.Add(response);
             response.Write(SerialPort);
             OutstandingRequest = null;
             Resume();
