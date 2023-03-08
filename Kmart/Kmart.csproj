@@ -19,6 +19,7 @@
       <PackageReference Include="Nethereum.RLP" Version="4.9.0" />
       <PackageReference Include="Nethereum.Signer" Version="4.9.0" />
       <PackageReference Include="Nethereum.Util" Version="4.9.0" />
+      <PackageReference Include="Nethereum.ABI" Version="4.9.0" />
     </ItemGroup>
 
     <ItemGroup>

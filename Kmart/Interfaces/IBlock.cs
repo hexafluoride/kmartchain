@@ -18,4 +18,5 @@ public interface IBlock
     public ulong GasUsed { get; }
     public ulong BaseFeePerGas { get; }
     public IEnumerable<byte[]> TransactionsEncoded { get; }
+    public List<AnnotatedDepositData> GetDeposits();
 }

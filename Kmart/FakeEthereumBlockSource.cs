@@ -13,6 +13,7 @@ public class FakeEthereumBlockSource
 {
     private ILogger<FakeEthereumBlockSource> Logger;
     private IChainState ChainState; // We only use this for the genesis state
+    private IBlockStorage BlockStorage;
     
     public int LastFakedHeight = 16;
     public ulong MergeHeight = 19;
@@ -22,10 +23,11 @@ public class FakeEthereumBlockSource
     private DateTime anchoringTime = DateTime.MinValue;
     private int anchoringHeight = -1;
 
-    public FakeEthereumBlockSource(IChainState chainState, ILogger<FakeEthereumBlockSource> logger)
+    public FakeEthereumBlockSource(IChainState chainState, ILogger<FakeEthereumBlockSource> logger, IBlockStorage blockStorage)
     {
         ChainState = chainState ?? throw new ArgumentNullException(nameof(chainState));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        BlockStorage = blockStorage ?? throw new ArgumentNullException(nameof(blockStorage));
     }
 
     public FakeEthereumBlock? GetBlock(byte[] hash)
@@ -71,7 +73,8 @@ public class FakeEthereumBlockSource
             }
 
             var heightDiff = newHeight - anchoringHeight;
-            time = anchoringTime + TimeSpan.FromSeconds(1 * heightDiff);
+            // time = anchoringTime + TimeSpan.FromSeconds(10 * heightDiff);
+            time = DateTime.UnixEpoch.AddSeconds((ChainState?.GenesisState?.GenesisTime ?? 0) + (ulong) (10 * (newHeight - (int) MergeHeight)));
         }
 
         var newBlock = new FakeEthereumBlock()
@@ -128,6 +131,35 @@ public class FakeEthereumBlockSource
         return fakeBlocks[hashString];
     }
 
+    private Dictionary<ulong, List<object>> CachedDepositLogs = new(); 
+    public List<object> GetDepositLogObjects(ulong height)
+    {
+        if (!CachedDepositLogs.ContainsKey(height))
+        {
+            IBlock? block = null;
+            try
+            {
+                block = BlockStorage.GetBlock(height);
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e, $"Could not fetch block at {height}");
+            }
+            if (block is null)
+            {
+                return new List<object>();
+            }
+
+            // CachedDepositLogs[height] = block.GetDeposits().Select((depositData, i) =>
+            //     depositData.CreateLogObject(block.Hash.ToPrettyString(true), block.Height, depositData.TransactionHash,
+            //         (ulong) depositData.TransactionIndex, depositData.Address, (ulong) depositData.LogIndex,
+            //         depositData.Topic)).ToList();
+            CachedDepositLogs[height] = block.GetDeposits().Select(d => d.CreateLogObject()).ToList();
+        }
+
+        return CachedDepositLogs[height];
+    }
+    
     public object GetLogsResponse(JsonElement parameters)
     {
         var spec = parameters[0];
@@ -150,18 +182,31 @@ public class FakeEthereumBlockSource
         }
 
         var topic = spec.GetProperty("topics")[0].GetString() ?? throw new Exception($"No topic in logs request");
+        var deposits = new List<object>();
+        
+        for (ulong u = fromBlock; u <= toBlock; u++)
+        {
+            // GetBlock((int) u, BlockStorage.GetBlock(u));
+            deposits.AddRange(GetDepositLogObjects(u));
+        }
         
         if (fromBlock <= MergeHeight && toBlock >= MergeHeight)
         {
-            GetBlock((int) MergeHeight, null);
-            var mergeBlockHash = fakeBlocks.First(p => p.Value.Height == (int)MergeHeight).Key;
-            return GenesisDeposits.Select((depositData, i) => depositData.CreateLogObject(mergeBlockHash, MergeHeight,
-                Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), 0,
-                Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), (ulong) i, topic)).ToArray();
+            if (!CachedDepositLogs.ContainsKey(MergeHeight) || !CachedDepositLogs[MergeHeight].Any())
+            {
+                GetBlock((int) MergeHeight, null);
+                var mergeBlockHash = fakeBlocks.First(p => p.Value.Height == (int) MergeHeight).Key;
+                CachedDepositLogs[MergeHeight] = new();
+                CachedDepositLogs[MergeHeight].AddRange(GenesisDeposits.Select((depositData, i) =>
+                    depositData.CreateLogObject(mergeBlockHash, MergeHeight,
+                        Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), 0,
+                        Enumerable.Repeat((byte) 32, 32).ToArray().ToPrettyString(true), (ulong) i, topic)).ToArray());
+            }
+            deposits.AddRange(CachedDepositLogs[MergeHeight]);
         }
 
         // TODO: Look at native blocks to see if they create any deposits
-        return new object[0];
+        return deposits;
     }
 }
 

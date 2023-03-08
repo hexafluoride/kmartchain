@@ -49,10 +49,10 @@ namespace Kmart.Qemu
         private List<byte[]> transactionsEncoded = new();
         public IEnumerable<byte[]> TransactionsEncoded => transactionsEncoded;
 
-        public List<DepositData> GetDeposits()
+        public List<AnnotatedDepositData> GetDeposits()
         {
             // TODO: Parse special Kmart-native validator deposit transaction
-            return new List<DepositData>();
+            return new List<AnnotatedDepositData>();
         }
         
         public void CalculateHash() => _hash = SszContainer.HashTreeRoot(this);

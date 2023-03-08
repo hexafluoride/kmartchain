@@ -1,17 +1,35 @@
 using System;
 using System.Linq;
+using Nethereum.ABI.FunctionEncoding.Attributes;
 using SszSharp;
 
 namespace Kmart;
 
+public class DepositEvent
+{
+    /*
+     *         bytes pubkey,
+        bytes withdrawal_credentials,
+        bytes amount,
+        bytes signature,
+        bytes index
+     */
+    
+    [Parameter("bytes", 1)] public byte[] Pubkey { get; set; }
+    [Parameter("bytes", 2)] public byte[] WithdrawalCredentials { get; set; }
+    [Parameter("bytes", 3)] public byte[] Amount { get; set; }
+    [Parameter("bytes", 4)] public byte[] Signature { get; set; }
+    [Parameter("bytes", 5)] public byte[] Index { get; set; }
+}
+
 public class DepositData
 {
+    public static ulong TotalDeposits = 0;
     [SszElement(0, "Vector[uint8, 48]")] public byte[] Pubkey { get; set; } = new byte[48];
     [SszElement(1, "Vector[uint8, 32]")] public byte[] WithdrawalCredentials { get; set; } = new byte[32];
     [SszElement(2, "uint64")] public ulong DepositAmount { get; set; }
     [SszElement(3, "Vector[uint8, 96]")] public byte[] Signature { get; set; } = new byte[96];
     public ulong Index { get; set; }
-    public static ulong TotalDeposits = 0;
 
     public static DepositData FromDepositTransactionRlp(byte[] rlp, ulong depositAmount = 32_000_000_000)
     {
