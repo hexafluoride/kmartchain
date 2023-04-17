@@ -187,6 +187,14 @@ public class ExecutionLayerServer
                 var realBlockHash = ChainState?.Ancestors?.FirstOrDefault(ancestorHash =>
                     BlockStorage.GetBlock(ancestorHash)?.Height == (ulong) targetHeight);
                 var realBlock = realBlockHash is not null ? BlockStorage.GetBlock(realBlockHash) : null;
+                realBlock ??= BlockStorage.GetBlock((ulong)targetHeight);
+
+                if (realBlock is null && targetHeight > (int) (FakeEthereumBlockSource.MergeHeight + 5) && Math.Abs(targetHeight - (int) currentHeight) < 5)
+                {
+                    Logger.LogInformation($"Setting getBlockByNumber response to null because request is too close to head and we are past the merge");
+                    responseValue = null;
+                    break;
+                }
                 
                 var resultBlock = FakeEthereumBlockSource.GetBlock(targetHeight, realBlock);
                 if (resultBlock.Height == (int)(FakeEthereumBlockSource.MergeHeight + 1))

@@ -59,11 +59,13 @@ public class FakeEthereumBlockSource
         if (realBlock is not null)
         {
             newHashStr = realBlock.Hash.ToPrettyString(true);
+            Logger.LogInformation($"Successfully obtained real block {newHashStr} for height {newHeight}");
             lastHash = realBlock.Parent;
             time = DateTime.UnixEpoch + TimeSpan.FromSeconds(realBlock.Timestamp);
         }
         else
         {
+            Logger.LogInformation($"Could not find real block for height {newHeight}");
             if (anchoringHeight == -1)
             {
                 anchoringHeight = (int) MergeHeight;
@@ -134,6 +136,7 @@ public class FakeEthereumBlockSource
     private Dictionary<ulong, List<object>> CachedDepositLogs = new(); 
     public List<object> GetDepositLogObjects(ulong height)
     {
+        Logger.LogDebug($"Gathering deposits for height {height} / 0x{height:X}");
         if (!CachedDepositLogs.ContainsKey(height))
         {
             IBlock? block = null;
@@ -147,14 +150,18 @@ public class FakeEthereumBlockSource
             }
             if (block is null)
             {
+                Logger.LogError($"Could not fetch block at {height} (null)");
                 return new List<object>();
             }
 
-            // CachedDepositLogs[height] = block.GetDeposits().Select((depositData, i) =>
-            //     depositData.CreateLogObject(block.Hash.ToPrettyString(true), block.Height, depositData.TransactionHash,
-            //         (ulong) depositData.TransactionIndex, depositData.Address, (ulong) depositData.LogIndex,
-            //         depositData.Topic)).ToList();
-            CachedDepositLogs[height] = block.GetDeposits().Select(d => d.CreateLogObject()).ToList();
+            var deposits = block.GetDeposits();
+            Logger.LogDebug($"{height} / 0x{height:X} has {deposits.Count} deposits");
+            CachedDepositLogs[height] = deposits.Select(d => d.CreateLogObject()).ToList();
+
+            foreach (var deposit in deposits)
+            {
+                Logger.LogDebug($"Deposit at {deposit.TransactionHash.ToPrettyString(true)} has index {deposit.DepositData.Index}");
+            }
         }
 
         return CachedDepositLogs[height];
@@ -184,12 +191,6 @@ public class FakeEthereumBlockSource
         var topic = spec.GetProperty("topics")[0].GetString() ?? throw new Exception($"No topic in logs request");
         var deposits = new List<object>();
         
-        for (ulong u = fromBlock; u <= toBlock; u++)
-        {
-            // GetBlock((int) u, BlockStorage.GetBlock(u));
-            deposits.AddRange(GetDepositLogObjects(u));
-        }
-        
         if (fromBlock <= MergeHeight && toBlock >= MergeHeight)
         {
             if (!CachedDepositLogs.ContainsKey(MergeHeight) || !CachedDepositLogs[MergeHeight].Any())
@@ -204,8 +205,12 @@ public class FakeEthereumBlockSource
             }
             deposits.AddRange(CachedDepositLogs[MergeHeight]);
         }
-
-        // TODO: Look at native blocks to see if they create any deposits
+        
+        for (ulong u = fromBlock; u <= toBlock; u++)
+        {
+            deposits.AddRange(GetDepositLogObjects(u));
+        }
+        
         return deposits;
     }
 }
